@@ -141,3 +141,18 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+
+# n8n workflow exports and secrets (v1 convention)
+*.sqlite
+*.sqlite-journal
+.env.local
+.env.*.local
+credentials/
+secrets/
+**/tunnel-url.txt
+**/*.trycloudflare.com.txt
+
+# Sanitize-before-commit reminder:
+# Before committing any file in workflows/, run the sanitize pass documented
+# in the v1 README. Never commit raw workflow exports.
