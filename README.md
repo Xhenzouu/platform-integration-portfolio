@@ -40,6 +40,10 @@ LICENSE
 .gitignore
 ```
 
+## Gotchas
+
+**n8n 2.8.4 Filter and Switch nodes discard items whose comparison should succeed.** Both node types were tested with a string value confirmed byte-clean (`len: 4`, `codes: [104, 105, 103, 104]`) and both discarded the item. Replaced with a Code node that uses strict JavaScript equality (`===`). Deterministic and debuggable. See `workflows/` for the workflow's inline comment.
+
 ## Sanitize Before Commit
 
 Workflow JSON exports from n8n contain instance-specific values that must not be committed. Before every commit that touches `workflows/`, run a find-and-replace pass to strip:
