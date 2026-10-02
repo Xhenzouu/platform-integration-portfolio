@@ -42,11 +42,21 @@ LICENSE
 
 ## Gotchas
 
-**HTTP Request node: leading `=` is sent as literal text in both body modes on n8n 2.8.4.** In `Using JSON` and `Raw` body modes, pasting `={{ expression }}` sends a body that starts with `=`, not `{`. HubSpot, Groq, and any JSON-strict API reject the request. Fix: paste `{{ expression }}` without the `=` prefix. The field's expression toggle handles expression mode.
+**Groq free-tier TPM is a rolling 60-second window.** Single-call classification per lead keeps usage well under the 8,000 TPM ceiling. This workflow does not batch because it processes one lead per webhook.
 
-**HubSpot v3 deal creation returns `hs_num_associated_contacts: "0"` even when the association succeeded.** The count is computed asynchronously. Confirm associations via the HubSpot UI, not the immediate API response. Inline `associations` in the deal creation body works and does not require a separate association call.
+**`reasoning_effort: "low"` on `gpt-oss-20b`.** Without it, reasoning tokens consume the completion budget and the JSON response truncates. Symptom: `finish_reason: "length"` or missing fields in the parsed output.
 
-**HubSpot v3 contact creation returns 409 on duplicate email.** Switch to `/crm/v3/objects/contacts/batch/upsert` with `idProperty: "email"`. The response shape changes: the ID lives at `results[0].id`, not at the top level. Downstream nodes must reach back with the new path.
+**HTTP Request node: leading `=` is sent as literal text on n8n 2.8.4.** In both `Using JSON` and `Raw` body modes, pasting `={{ expression }}` sends a body that starts with `=`, not `{`. HubSpot, Groq, and any JSON-strict API reject the request. Fix: paste `{{ expression }}` without the `=` prefix. The field's expression toggle handles expression mode.
+
+**The Filter and Switch nodes in n8n 2.8.4 discard items whose comparison should succeed.** Confirmed byte-clean string (`len: 4`, `codes: [104, 105, 103, 104]`) still discarded when compared to the literal `high`. Replaced with a Code node using strict JavaScript equality. See `workflows/hubspot-lead-enrichment-pipeline.json` for the inline comment.
+
+**HubSpot v3 contact creation returns 409 on duplicate email.** The single-object endpoint does not deduplicate. Switch to `/crm/v3/objects/contacts/batch/upsert` with `idProperty: "email"`. Response shape changes: contact ID lives at `results[0].id`, not at the top level.
+
+**HubSpot's `hs_num_associated_contacts` field is computed asynchronously.** Immediately after deal creation with an inline association, this field may show `"0"`. Refresh the deal in the HubSpot UI after 15-30 seconds. Do not treat the immediate API response as authoritative for association counts.
+
+**Apify sync mode has a cold-start delay.** First run of the actor per session takes 10-20 seconds. The HTTP Request node sets a 60-second timeout to cover this. Subsequent runs in the same session return in 5-15 seconds.
+
+**Empty Apify response for fictional domains.** For non-existent domains like `acme.ph`, `domainInfo`, `socialLinks`, and `contact` fields are null. The `Extract Enrichment Signals` node detects this and sets `enrichment_available: false`. The scorer then relies on the message content alone.
 
 ## Sanitize Before Commit
 
