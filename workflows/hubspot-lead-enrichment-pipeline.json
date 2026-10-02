@@ -1,0 +1,356 @@
+{
+  "name": "HubSpot Lead Enrichment Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hubspot-lead-intake",
+        "options": {
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2e60f269-5cb4-4d39-884c-0ae69c488b37",
+      "name": "Receive Lead",
+      "webhookId": "6f30ffed-13cc-4333-9e66-a672da0638c6"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate the inbound lead payload and attach a unique run_id.\n// Every downstream node reads from this node, not from the Webhook,\n// so normalization happens in one place.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const body = item.json.body || {};\n\n  // Required fields\n  const name = (body.name || '').trim();\n  const email = (body.email || '').trim().toLowerCase();\n  const companyDomain = (body.company_domain || '').trim().toLowerCase();\n  const message = (body.message || '').trim();\n\n  // Validation\n  const errors = [];\n  if (!name) errors.push('name is required');\n  if (!email) errors.push('email is required');\n  if (!email.includes('@')) errors.push('email is not a valid address');\n  if (!companyDomain) errors.push('company_domain is required');\n  if (!companyDomain.includes('.')) errors.push('company_domain must include a TLD');\n\n  if (errors.length > 0) {\n    results.push({\n      json: {\n        valid: false,\n        errors: errors,\n        run_id: $execution.id + '-' + i + '-' + Date.now(),\n        received_at: new Date().toISOString()\n      }\n    });\n    continue;\n  }\n\n  // Strip protocol and www if present\n  const cleanDomain = companyDomain\n    .replace(/^https?:\\/\\//, '')\n    .replace(/^www\\./, '')\n    .replace(/\\/.*$/, '');\n\n  results.push({\n    json: {\n      valid: true,\n      errors: [],\n      run_id: $execution.id + '-' + i + '-' + Date.now(),\n      received_at: new Date().toISOString(),\n      lead: {\n        name: name,\n        email: email,\n        company_domain: cleanDomain,\n        message: message\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "6bdcd5db-7769-4818-8091-82c65238f7fa",
+      "name": "Validate Lead Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/miccho27~company-data-enricher/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ domains: [$json.lead.company_domain] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "cf966b97-8b3b-4ab9-ae03-72c23bbaf744",
+      "name": "Enrich Company",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "mAACrP7SLB74DdEi",
+          "name": "Apify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reshape the Apify response into the enrichment signals Groq will score against.\n// Reads from Validate Lead Payload for lead identity and from Apify output for company signals.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const enrich = item.json || {};\n\n  // Reach back to the validated lead payload for identity fields\n  const lead = $('Validate Lead Payload').item.json.lead;\n\n  // Guard against a completely empty Apify response\n  if (!enrich || Object.keys(enrich).length === 0) {\n    results.push({\n      json: {\n        run_id: $('Validate Lead Payload').item.json.run_id,\n        received_at: $('Validate Lead Payload').item.json.received_at,\n        lead: lead,\n        enrichment: {\n          domain: lead.company_domain,\n          title: null,\n          description: null,\n          domain_age: null,\n          registrar: null,\n          social_links_present: false,\n          technologies_count: 0,\n          contact_email_present: false,\n          contact_phone_present: false\n        },\n        enrichment_available: false,\n        enrichment_summary: \"Apify returned empty response\"\n      }\n    });\n    continue;\n  }\n\n  // Pull each signal with null-safe access\n  const title = (enrich.metadata && enrich.metadata.title) || null;\n  const description = (enrich.metadata && enrich.metadata.description) || null;\n  const domainAge = (enrich.domainInfo && enrich.domainInfo.domainAge) || null;\n  const registrar = (enrich.domainInfo && enrich.domainInfo.registrar) || null;\n  const socialLinks = enrich.socialLinks && typeof enrich.socialLinks === 'object'\n    ? Object.keys(enrich.socialLinks).length > 0\n    : false;\n  const technologies = Array.isArray(enrich.technologies) ? enrich.technologies : [];\n  const contactEmails = enrich.contact && enrich.contact.emails ? enrich.contact.emails : null;\n  const contactPhones = enrich.contact && enrich.contact.phones ? enrich.contact.phones : null;\n\n  results.push({\n    json: {\n      run_id: $('Validate Lead Payload').item.json.run_id,\n      received_at: $('Validate Lead Payload').item.json.received_at,\n      lead: lead,\n      enrichment: {\n        domain: enrich.domain || lead.company_domain,\n        title: title,\n        description: description,\n        domain_age: domainAge,\n        registrar: registrar,\n        social_links_present: socialLinks,\n        technologies_count: technologies.length,\n        contact_email_present: contactEmails !== null,\n        contact_phone_present: contactPhones !== null\n      },\n      enrichment_available: title !== null || description !== null || domainAge !== null,\n      enrichment_summary: buildSummary(title, description, domainAge, socialLinks, technologies)\n    }\n  });\n}\n\n// Build a short human-readable summary for the Groq prompt\nfunction buildSummary(title, description, domainAge, socialLinks, technologies) {\n  const parts = [];\n  if (title) parts.push(\"Title: \" + title);\n  if (description) parts.push(\"Description: \" + description.slice(0, 200));\n  if (domainAge) parts.push(\"Domain age: \" + domainAge);\n  parts.push(\"Social links: \" + (socialLinks ? \"present\" : \"none\"));\n  parts.push(\"Tech stack: \" + (technologies.length > 0 ? technologies.slice(0, 5).join(\", \") : \"unknown\"));\n  return parts.join(\" | \");\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "2b7be3cd-2f9c-4bd8-a9fc-40c2e07a553d",
+      "name": "Extract Enrichment Signals"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble the full Groq API request body as a JSON string.\n// Sent as raw body by the next node.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const lead = item.json.lead;\n  const enrichment = item.json.enrichment;\n  const run_id = item.json.run_id;\n\n  // Countable criteria for lead scoring.\n  // high = 2 or more criteria met. medium = 1. low = 0.\n  const systemPrompt = [\n    \"You are a lead qualification scorer. Score the lead against 5 countable criteria and return JSON only.\",\n    \"\",\n    \"Criteria:\",\n    \"1. Decision-Maker Role: the message or contact name indicates the sender can approve purchasing decisions (titles: CEO, CTO, VP, Head, Director, Founder, Owner, Manager of a relevant function).\",\n    \"2. Budget or Approval Signal: the message mentions a budget, an approved spend, a procurement process, or a paid engagement.\",\n    \"3. Company Maturity: the enrichment shows at least 2 of: a real page title, a real page description, a domain age of 2 or more years, a populated registrar, or social links present.\",\n    \"4. Timeline: the message names a timeframe for starting or completing the project (e.g. 'this quarter', 'by December', 'next month').\",\n    \"5. Specific Solution Request: the message names a specific problem, tool, or process the sender wants automated or integrated.\",\n    \"\",\n    \"Scoring rule:\",\n    \"- high: 2 or more criteria met\",\n    \"- medium: exactly 1 criterion met\",\n    \"- low: 0 criteria met\",\n    \"\",\n    \"Ambiguous cases lean toward the lower score, not the higher one. Do not infer signals that are not stated. If a criterion is unclear, mark it as not met.\",\n    \"\",\n    \"Return JSON only, no markdown, no prose, with this exact shape:\",\n    '{\"score\":\"high|medium|low\",\"criteria_met\":[\"Criterion Name\",...],\"reasoning\":\"one sentence\"}'\n  ].join(\"\\n\");\n\n  const userPrompt = [\n    \"Lead name: \" + lead.name,\n    \"Lead email: \" + lead.email,\n    \"Company domain: \" + lead.company_domain,\n    \"Message: \" + lead.message,\n    \"\",\n    \"Enrichment summary:\",\n    item.json.enrichment_summary,\n    \"\",\n    \"Enrichment signals:\",\n    \"- Domain age: \" + (enrichment.domain_age || \"unknown\"),\n    \"- Registrar: \" + (enrichment.registrar || \"unknown\"),\n    \"- Social links present: \" + enrichment.social_links_present,\n    \"- Technologies count: \" + enrichment.technologies_count,\n    \"- Contact email present: \" + enrichment.contact_email_present,\n    \"- Contact phone present: \" + enrichment.contact_phone_present\n  ].join(\"\\n\");\n\n  const body = {\n    model: \"openai/gpt-oss-20b\",\n    temperature: 0,\n    reasoning_effort: \"low\",\n    response_format: { type: \"json_object\" },\n    messages: [\n      { role: \"system\", content: systemPrompt },\n      { role: \"user\", content: userPrompt }\n    ]\n  };\n\n  results.push({\n    json: {\n      run_id: run_id,\n      received_at: item.json.received_at,\n      lead: lead,\n      enrichment: enrichment,\n      enrichment_available: item.json.enrichment_available,\n      enrichment_summary: item.json.enrichment_summary,\n      body_string: JSON.stringify(body)\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "014c6512-9f0c-495a-a3ae-d84d35e733e8",
+      "name": "Build Groq Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body_string }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "7c6eac73-4768-4d86-992c-c3b89af845b4",
+      "name": "Score with Groq",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dSoPhZd45do4pT9v",
+          "name": "Header Auth account"
+        },
+        "groqApi": {
+          "id": "9hnjfZkpr84HmloQ",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the Groq response and merge the score with the lead and enrichment data.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const groqResponse = item.json;\n\n  const previous = $('Build Groq Body').first().json;\n\n  let score = \"unknown\";\n  let criteriaMet = [];\n  let reasoning = \"Parse failed\";\n  let parseError = null;\n\n  try {\n    const content = groqResponse.choices[0].message.content;\n    const parsed = JSON.parse(content);\n    score = parsed.score || \"unknown\";\n    criteriaMet = Array.isArray(parsed.criteria_met) ? parsed.criteria_met : [];\n    reasoning = parsed.reasoning || \"\";\n  } catch (e) {\n    parseError = e.message;\n  }\n\n  const validScores = [\"high\", \"medium\", \"low\"];\n  if (!validScores.includes(score)) {\n    score = \"unknown\";\n  }\n\n  // Build a Postgres-compatible array literal for criteria_met\n  const esc = (v) => \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n  const criteriaMetSql = criteriaMet.length > 0\n    ? \"ARRAY[\" + criteriaMet.map(esc).join(\",\") + \"]::text[]\"\n    : \"ARRAY[]::text[]\";\n\n  results.push({\n    json: {\n      run_id: previous.run_id,\n      received_at: previous.received_at,\n      lead: previous.lead,\n      enrichment: previous.enrichment,\n      enrichment_available: previous.enrichment_available,\n      enrichment_summary: previous.enrichment_summary,\n      score: score,\n      criteria_met: criteriaMet,\n      criteria_met_sql: criteriaMetSql,\n      reasoning: reasoning,\n      parse_error: parseError,\n      groq_usage: {\n        prompt_tokens: groqResponse.usage ? groqResponse.usage.prompt_tokens : null,\n        completion_tokens: groqResponse.usage ? groqResponse.usage.completion_tokens : null,\n        reasoning_tokens: groqResponse.usage && groqResponse.usage.completion_tokens_details\n          ? groqResponse.usage.completion_tokens_details.reasoning_tokens\n          : null,\n        total_tokens: groqResponse.usage ? groqResponse.usage.total_tokens : null\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "fa71bbbb-c4e7-4c8c-bbf7-15c8c07430e7",
+      "name": "Parse Score"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ inputs: [{ idProperty: \"email\", id: $json.lead.email, properties: { email: $json.lead.email, firstname: $json.lead.name.split(' ')[0], lastname: $json.lead.name.split(' ').slice(1).join(' '), company: $json.enrichment.title || $json.lead.company_domain, lifecyclestage: 'lead', hs_lead_status: 'NEW' } }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1664,
+        -112
+      ],
+      "id": "c28e9505-b689-4a72-8fbe-5c1a71a62c42",
+      "name": "Create HubSpot Contact",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "6AUUWQ2CGfSNPNKZ",
+          "name": "HubSpot App Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replaces the Filter node due to a comparison bug in n8n 2.8.4.\n// The Filter node discarded items whose score matched the condition.\n// This Code node uses strict JavaScript equality, which is deterministic.\n\nconst items = $input.all();\nconst kept = [];\n\nfor (const item of items) {\n  if (item.json.score === 'high') {\n    kept.push(item);\n  }\n}\n\nreturn kept;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "5e5e8f2b-32d0-4d4c-add2-746d5d2b82b6",
+      "name": "Filter High"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { dealname: $('Filter High').item.json.lead.name + \" - \" + $('Filter High').item.json.lead.company_domain, dealstage: \"qualifiedtobuy\", pipeline: \"default\", description: $('Filter High').item.json.reasoning.slice(0, 500) }, associations: [{ to: { id: $('Create HubSpot Contact').first().json.results[0].id }, types: [{ associationCategory: \"HUBSPOT_DEFINED\", associationTypeId: 3 }] }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1872,
+        -112
+      ],
+      "id": "bc6e3353-d6d2-49d3-9305-ac43870597af",
+      "name": "Create HubSpot Deal",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "6AUUWQ2CGfSNPNKZ",
+          "name": "HubSpot App Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lead_enrichment_runs (\n  run_id,\n  received_at,\n  lead_name,\n  lead_email,\n  lead_company_domain,\n  enrichment_data,\n  score,\n  criteria_met,\n  reasoning,\n  hubspot_contact_id,\n  hubspot_deal_id,\n  hubspot_deal_stage,\n  processed_at\n) VALUES (\n  '{{ $('Validate Lead Payload').item.json.run_id.replace(/'/g, \"''\") }}',\n  '{{ $('Validate Lead Payload').item.json.received_at }}'::timestamptz,\n  '{{ $('Validate Lead Payload').item.json.lead.name.replace(/'/g, \"''\") }}',\n  '{{ $('Validate Lead Payload').item.json.lead.email.replace(/'/g, \"''\") }}',\n  '{{ $('Validate Lead Payload').item.json.lead.company_domain.replace(/'/g, \"''\") }}',\n  '{{ JSON.stringify($('Extract Enrichment Signals').item.json.enrichment).replace(/'/g, \"''\") }}'::jsonb,\n  '{{ $('Parse Score').item.json.score }}',\n  {{ $('Parse Score').item.json.criteria_met_sql }},\n  '{{ $('Parse Score').item.json.reasoning.replace(/'/g, \"''\") }}',\n  '{{ $('Create HubSpot Contact').first().json.results[0].id }}',\n  '{{ $('Create HubSpot Deal').item.json.id }}',\n  '{{ $('Create HubSpot Deal').item.json.properties.dealstage }}',\n  NOW()\n)\nON CONFLICT (run_id) DO NOTHING;",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2080,
+        -112
+      ],
+      "id": "9864df25-422f-41cf-8fb3-d75c778ac2da",
+      "name": "Log Run to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Lead": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Payload": {
+      "main": [
+        [
+          {
+            "node": "Enrich Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Company": {
+      "main": [
+        [
+          {
+            "node": "Extract Enrichment Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Enrichment Signals": {
+      "main": [
+        [
+          {
+            "node": "Build Groq Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq Body": {
+      "main": [
+        [
+          {
+            "node": "Score with Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score with Groq": {
+      "main": [
+        [
+          {
+            "node": "Parse Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Score": {
+      "main": [
+        [
+          {
+            "node": "Filter High",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create HubSpot Contact": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Deal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create HubSpot Deal": {
+      "main": [
+        [
+          {
+            "node": "Log Run to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6a682446-440a-480a-8541-6858d8c7b134",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "A8tcpv8jVirjynku",
+  "tags": []
+}

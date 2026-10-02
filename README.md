@@ -42,7 +42,11 @@ LICENSE
 
 ## Gotchas
 
-**n8n 2.8.4 Filter and Switch nodes discard items whose comparison should succeed.** Both node types were tested with a string value confirmed byte-clean (`len: 4`, `codes: [104, 105, 103, 104]`) and both discarded the item. Replaced with a Code node that uses strict JavaScript equality (`===`). Deterministic and debuggable. See `workflows/` for the workflow's inline comment.
+**HTTP Request node: leading `=` is sent as literal text in both body modes on n8n 2.8.4.** In `Using JSON` and `Raw` body modes, pasting `={{ expression }}` sends a body that starts with `=`, not `{`. HubSpot, Groq, and any JSON-strict API reject the request. Fix: paste `{{ expression }}` without the `=` prefix. The field's expression toggle handles expression mode.
+
+**HubSpot v3 deal creation returns `hs_num_associated_contacts: "0"` even when the association succeeded.** The count is computed asynchronously. Confirm associations via the HubSpot UI, not the immediate API response. Inline `associations` in the deal creation body works and does not require a separate association call.
+
+**HubSpot v3 contact creation returns 409 on duplicate email.** Switch to `/crm/v3/objects/contacts/batch/upsert` with `idProperty: "email"`. The response shape changes: the ID lives at `results[0].id`, not at the top level. Downstream nodes must reach back with the new path.
 
 ## Sanitize Before Commit
 
