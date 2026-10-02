@@ -20,7 +20,7 @@ The two repos are designed to be read together. This one shows how to connect to
 
 | # | Workflow | Platforms | Pattern |
 |---|----------|-----------|---------|
-| 1 | HubSpot Lead Enrichment Pipeline | HubSpot, Apify, Groq, Supabase | Inbound lead, enrich, score, create contact and conditional deal |
+| 1 | [HubSpot Lead Enrichment Pipeline](docs/workflows/01-hubspot-lead-enrichment-pipeline.md) | HubSpot, Apify, Groq, Supabase | Inbound lead, enrich, score, create contact and conditional deal |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
@@ -83,7 +83,7 @@ Setup instructions will be added as each workflow lands. They will cover:
 
 ## Status
 
-Early. First workflow in progress. Structure and conventions are in place.
+Workflow 1 shipped. HubSpot Lead Enrichment Pipeline runs end-to-end from webhook to CRM write to audit log. More workflows will be added incrementally.
 
 ## About
 
