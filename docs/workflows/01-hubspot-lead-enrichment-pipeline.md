@@ -30,22 +30,17 @@ Webhook (POST /hubspot-lead-intake)
 
 Eleven nodes. One inbound webhook. One outbound CRM write.
 
+![HubSpot Lead Enrichment Pipeline — full canvas, all nodes green](../images/01-canvas.png)
+
 ## Key implementation details
 
 - **Deterministic lead scoring.** The same five countable criteria and the same three-part structure as v1's Lead Qualification Agent: temperature 0, explicit criteria with numeric thresholds, and an ambiguity clause that biases toward the lower score. `high` requires 2 or more criteria. `medium` requires exactly 1. `low` requires 0.
-
 - **Company enrichment via Apify.** The `miccho27~company-data-enricher` actor runs in sync mode (`/run-sync-get-dataset-items`) and returns page title, description, OG tags, RDAP registration data, social links, technology stack, and contact information. Sync mode is used because the workflow needs the enrichment result before it can score.
-
 - **Normalized enrichment shape.** The `Extract Enrichment Signals` Code node flattens the raw Apify response into a fixed set of fields. Downstream nodes and the Supabase audit table reference this flattened shape, not the raw Apify output. This means the Apify response shape can change without breaking the workflow.
-
 - **Domain normalization happens once.** The `Validate Lead Payload` node strips `https://`, `www.`, and any path from `company_domain`, then lowercases it. Every downstream node reads the normalized form.
-
 - **Idempotent contact write.** `POST /crm/v3/objects/contacts/batch/upsert` with `idProperty: "email"` means the workflow creates the contact on first run and updates it on subsequent runs. No duplicate contact records. The response shape is a batch wrapper with `results[0].id`.
-
 - **Inline deal-contact association.** The deal creation body includes an `associations` array with `associationCategory: "HUBSPOT_DEFINED"` and `associationTypeId: 3`. One API call creates both the deal and the association. No separate association call needed.
-
 - **Idempotent Supabase write.** `run_id` carries a unique index. The INSERT uses `ON CONFLICT (run_id) DO NOTHING`. Re-running the same execution does not duplicate the audit row.
-
 - **Precomputed SQL for arrays.** The `criteria_met` column is `TEXT[]` in Postgres. The `Parse Score` node builds a Postgres-compatible array literal (`ARRAY['a','b']::text[]`) as a separate `criteria_met_sql` field. This avoids n8n's broken inline `ARRAY[...]` expression pattern.
 
 ## Verified behavior
@@ -66,12 +61,11 @@ Full execution from webhook to Supabase log, one inbound lead, one clean run:
 | `Create HubSpot Deal` | Deal ID created, `dealstage: qualifiedtobuy`, associated with contact |
 | `Log Run to Supabase` | Row inserted with contact ID, deal ID, score, criteria, and reasoning |
 
-Screenshots:
+![Groq response showing criteria_met and reasoning](../images/01-groq-score.png)
 
-- `docs/images/01-canvas.png` — full workflow canvas, all nodes green
-- `docs/images/01-groq-score.png` — Groq response showing criteria_met and reasoning
-- `docs/images/01-hubspot-deal.png` — HubSpot deal detail with association to the contact
-- `docs/images/01-supabase-audit.png` — `lead_enrichment_runs` row with full audit trail
+![HubSpot deal detail with association to the contact](../images/01-hubspot-deal.png)
+
+![Supabase lead_enrichment_runs row with full audit trail](../images/01-supabase-audit.png)
 
 ## Stack
 
