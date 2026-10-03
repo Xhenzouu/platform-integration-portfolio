@@ -21,12 +21,13 @@ The two repos are designed to be read together. This one shows how to connect to
 | # | Workflow | Platforms | Pattern |
 |---|----------|-----------|---------|
 | 1 | [HubSpot Lead Enrichment Pipeline](docs/workflows/01-hubspot-lead-enrichment-pipeline.md) | HubSpot, Apify, Groq, Supabase | Inbound lead, enrich, score, create contact and conditional deal |
+| 2 | [Shopify Order Confirmation Pipeline](docs/workflows/02-shopify-order-confirmation-pipeline.md) | Shopify, Resend, Supabase | Order webhook, HMAC verify, HTML email, order note, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
-n8n (self-hosted) · HubSpot API · Shopify Admin API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
+n8n (self-hosted) · HubSpot API · Shopify Admin API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
 ## Repo Structure
 
@@ -35,6 +36,7 @@ workflows/      # n8n workflow JSON exports. Sanitized before commit.
 docs/
   workflows/    # One markdown file per workflow.
   images/       # Screenshots referenced by the workflow docs.
+scripts/        # Utility scripts (sanitize-workflows.ps1)
 README.md
 LICENSE
 .gitignore
@@ -58,9 +60,13 @@ LICENSE
 
 **Empty Apify response for fictional domains.** For non-existent domains like `acme.ph`, `domainInfo`, `socialLinks`, and `contact` fields are null. The `Extract Enrichment Signals` node detects this and sets `enrichment_available: false`. The scorer then relies on the message content alone.
 
+**n8n 2.8.4 blocks `require('crypto')` in Code nodes by default.** The env var `NODE_FUNCTION_ALLOW_BUILTIN=crypto` must be set in the shell that starts n8n. Needed for HMAC-based webhook verification (e.g. Shopify).
+
+**Resend free tier restricts recipients to the account owner's email address.** Any recipient other than the address registered on the Resend account is rejected with `403`. Verify a domain for production sending.
+
 ## Sanitize Before Commit
 
-Workflow JSON exports from n8n contain instance-specific values that must not be committed. Before every commit that touches `workflows/`, run a find-and-replace pass to strip:
+Workflow JSON exports from n8n contain instance-specific values that must not be committed. Before every commit that touches `workflows/`, run the sanitize script at `scripts/sanitize-workflows.ps1`, which strips:
 
 - Supabase project refs
 - Telegram chat IDs
@@ -83,7 +89,11 @@ Setup instructions will be added as each workflow lands. They will cover:
 
 ## Status
 
-Workflow 1 shipped. HubSpot Lead Enrichment Pipeline runs end-to-end from webhook to CRM write to audit log. More workflows will be added incrementally.
+Workflow 1 shipped. HubSpot Lead Enrichment Pipeline runs end-to-end from webhook to CRM write to audit log.
+
+Workflow 2 shipped. Shopify Order Confirmation Pipeline runs end-to-end from Shopify webhook to Resend email to Shopify order note to Supabase audit log, with a companion error handler workflow that writes failure rows to the same audit table.
+
+More workflows will be added incrementally.
 
 ## About
 
