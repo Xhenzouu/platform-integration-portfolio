@@ -83,37 +83,6 @@ Error path with test webhook ID `error-exec-326`:
 
 ![Supabase row showing shopify_note_status = failed with error_message populated](../images/02-supabase-error.png)
 
-Happy path with test webhook ID `test-webhook-id-015`:
-
-| Stage | Result |
-|-------|--------|
-| Webhook receives payload | 1 item, HMAC header present |
-| HMAC verification | passes, order parsed |
-| Extract Order Fields | customer_email, order_id, line_items populated |
-| Build Confirmation Email | HTML renders with dark header, line items table, total |
-| Send Confirmation Email | Resend returns email ID `01a10136-...` |
-| Fetch Shopify Token | token prefix `shpca_`, scope write_customers,write_orders, expires in 86399s |
-| Add Fulfillment Note | userErrors empty, order.note updated with Resend message ID |
-| Log Run to Supabase | row inserted with shopify_note_status = 'success' |
-
-Error path with test webhook ID `error-exec-326`:
-
-| Stage | Result |
-|-------|--------|
-| Workflow fails at Add Fulfillment Note | execution 326 fails |
-| Error Trigger fires | error handler workflow runs |
-| Parse Error Context | extracts error_node, error_message, error class |
-| Log Error to Supabase | row inserted with shopify_note_status = 'failed', error_message populated |
-
-Screenshots (see `docs/images/`):
-
-- `02-canvas.png` — main workflow canvas, all nine nodes green
-- `02-email.png` — HTML confirmation email as rendered in Yahoo Mail
-- `02-shopify-note.png` — Shopify order detail showing the note added by the app
-- `02-supabase-success.png` — happy path row in `shopify_webhook_runs`
-- `02-supabase-error.png` — error path row in `shopify_webhook_runs`
-- `02-error-handler-canvas.png` — error handler workflow canvas
-
 ## Stack
 
 n8n 2.8.4 (self-hosted) · Shopify Admin API (2026-10, GraphQL) · Resend API · Supabase (PostgreSQL) · Cloudflare Quick Tunnel
