@@ -1,0 +1,114 @@
+﻿{
+  "name": "Shopify Order Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7ae2c899-be35-4ce9-b956-c6f47adfe8bb",
+      "name": "Catch Workflow Failure"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const trigger = $input.all()[i].json;\n\n  const workflowName = (trigger.workflow && trigger.workflow.name) || 'Unknown Workflow';\n  const workflowId = (trigger.workflow && trigger.workflow.id) || null;\n\n  // Execution metadata: comes from trigger.execution for node errors\n  const executionId = trigger.execution && trigger.execution.id ? String(trigger.execution.id) : null;\n  const executionUrl = trigger.execution && trigger.execution.url ? trigger.execution.url : null;\n\n  // Error metadata: try nested shape first, fall back to flat shape\n  let errorNode = null;\n  let errorMessage = null;\n  let errorClass = null;\n  let errorTimestamp = null;\n\n  // Nested shape (HTTP node errors)\n  if (trigger.execution && trigger.execution.error) {\n    const err = trigger.execution.error;\n    if (err.node && err.node.name) errorNode = err.node.name;\n    if (err.description) errorMessage = err.description;\n    if (err.name) errorClass = err.name;\n    if (err.timestamp) errorTimestamp = err.timestamp;\n  }\n\n  // Flat shape (expression errors) â€” only used if nested did not populate\n  if (!errorNode && trigger.lastNodeExecuted) errorNode = trigger.lastNodeExecuted;\n  if (!errorMessage && trigger.message) errorMessage = trigger.message;\n  if (!errorClass && trigger.name) errorClass = trigger.name;\n  if (!errorTimestamp && trigger.executionContext && trigger.executionContext.establishedAt) {\n    errorTimestamp = trigger.executionContext.establishedAt;\n  }\n\n  // Final fallbacks\n  errorNode = errorNode || 'Unknown Node';\n  errorMessage = errorMessage || 'No error message';\n  errorClass = errorClass || 'UnknownError';\n  errorTimestamp = errorTimestamp || Date.now();\n\n  const triggerTime = new Date(errorTimestamp).toISOString();\n\n  // Unique key. Uses execution ID if available, timestamp otherwise.\n  const webhookId = executionId\n    ? 'error-exec-' + executionId\n    : 'error-' + errorTimestamp;\n\n  results.push({\n    json: {\n      webhook_id: webhookId,\n      workflow_name: workflowName,\n      workflow_id: workflowId,\n      execution_id: executionId,\n      execution_url: executionUrl,\n      error_node: errorNode,\n      error_message: errorMessage,\n      error_class: errorClass,\n      error_timestamp: triggerTime\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "0791b9b6-51f7-4cda-b005-56bf4c99188a",
+      "name": "Parse Error Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the INSERT statement for the error row.\n// Uses ON CONFLICT DO UPDATE so a failure row always lands, even if a prior row exists.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const d = $input.all()[i].json;\n\n  const esc = (v) => {\n    if (v === null || v === undefined) return 'NULL';\n    return \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n  };\n\n  // Build the error message. Include class, node, message, and execution URL when available.\n  const errorParts = [];\n  if (d.error_class) errorParts.push(d.error_class);\n  if (d.error_node) errorParts.push(d.error_node);\n  if (d.error_message) errorParts.push(d.error_message);\n  let errorMessage = errorParts.join(': ');\n  if (d.execution_url) errorMessage += ' | ' + d.execution_url;\n\n  const sql = `INSERT INTO shopify_webhook_runs (\n    webhook_id,\n    topic,\n    order_id,\n    customer_email,\n    shopify_note_status,\n    processed_at,\n    error_message\n  ) VALUES (\n    ${esc(d.webhook_id)},\n    'workflow_error',\n    ${esc(d.order_id)},\n    ${esc(d.customer_email)},\n    'failed',\n    NOW(),\n    ${esc(errorMessage)}\n  )\n  ON CONFLICT (webhook_id) DO UPDATE SET\n    error_message = EXCLUDED.error_message,\n    shopify_note_status = 'failed',\n    processed_at = NOW();`;\n\n  results.push({\n    json: Object.assign({}, d, {\n      sql_query: sql\n    })\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "576fa14b-54bb-4f56-aef4-c0168a752a6d",
+      "name": "Build Error SQL"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql_query }}",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        624,
+        0
+      ],
+      "id": "b8e6e393-4551-433c-a3fa-5490e639517e",
+      "name": "Log Error to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Catch Workflow Failure": {
+      "main": [
+        [
+          {
+            "node": "Parse Error Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Error Context": {
+      "main": [
+        [
+          {
+            "node": "Build Error SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error SQL": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fdbdcd26-c1a9-4b02-84fc-19d578e7afb5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "feqJXoXrznywBh3Y",
+  "tags": []
+}

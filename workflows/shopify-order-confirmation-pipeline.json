@@ -1,0 +1,299 @@
+﻿{
+  "name": "Shopify Order Confirmation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-order-intake",
+        "options": {
+          "rawBody": true,
+          "responseCode": {
+            "values": {}
+          },
+          "responseData": "=First Entry JSON"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "12366c5b-ad58-4d32-b11a-36f4c6005bc2",
+      "name": "Receive Shopify Order",
+      "webhookId": "0af23ca2-3fad-4cfb-8388-a6bd63ca2d23"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// Extract the raw body from the binary field\nconst binaryData = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst rawBody = binaryData.toString('utf8');\n\n// Extract headers and the Shopify HMAC\nconst headers = $input.first().json.headers || {};\nconst shopifyHmac = headers['x-shopify-hmac-sha256'];\n\nif (!shopifyHmac) {\n  throw new Error('Missing X-Shopify-Hmac-Sha256 header');\n}\n\n// Use the client secret from the credential (replace with your actual secret)\nconst secretKey = 'YOUR_SHOPIFY_CLIENT_SECRET';\n\n// Compute the HMAC-SHA256 signature\nconst computedHmac = crypto\n  .createHmac('sha256', secretKey)\n  .update(rawBody, 'utf8')\n  .digest('base64');\n\n// Compare the computed signature with the received signature\nif (computedHmac !== shopifyHmac) {\n  throw new Error('HMAC validation failed. Request is not from Shopify.');\n}\n\n// Parse the JSON body once verification succeeds\nconst orderData = JSON.parse(rawBody);\n\nreturn [{\n  json: {\n    verified: true,\n    order: orderData,\n    headers: headers,\n    topic: headers['x-shopify-topic'] || null,\n    webhook_id: headers['x-shopify-webhook-id'] || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "f01cba49-bc00-4a76-af64-564e9f993d58",
+      "name": "Verify Shopify HMAC"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reshape the verified Shopify order into a clean payload for the email and the audit log.\n// All defensive fallbacks are in place so a missing customer or missing line_items does not throw.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const order = item.json.order || {};\n  const headers = item.json.webhook_headers \n  || item.json.headers \n  || ($('Receive Shopify Order').first().json.headers || {});\n  const verified = item.json.verified === true;\n  const webhookId = item.json.webhook_id || headers['x-shopify-webhook-id'] || null;\n  const topic = item.json.topic || headers['x-shopify-topic'] || null;\n  const shopDomain = headers['x-shopify-shop-domain'] || 'YOUR_SHOPIFY_SHOP';\n\n  // Customer fallback: prefer nested customer object, fall back to top-level email\n  let customerEmail = null;\n  if (order.customer && order.customer.email) {\n    customerEmail = order.customer.email;\n  } else if (order.email) {\n    customerEmail = order.email;\n  }\n\n  // Customer name: only if the nested customer object exists\n  let customerName = null;\n  if (order.customer && (order.customer.first_name || order.customer.last_name)) {\n    const parts = [order.customer.first_name, order.customer.last_name].filter(Boolean);\n    customerName = parts.length > 0 ? parts.join(' ') : null;\n  }\n\n  // Line items: trim to title, quantity, price. Defensive against missing or non-array.\n  const rawLineItems = Array.isArray(order.line_items) ? order.line_items : [];\n  const lineItems = rawLineItems.map(li => ({\n    title: li.title || 'Item',\n    quantity: Number(li.quantity) || 0,\n    price: Number(li.price) || 0\n  }));\n\n  // Total: numeric for downstream, formatted string for the email\n  const totalPriceNumber = Number(order.total_price);\n  const totalPriceSafe = isNaN(totalPriceNumber) ? 0 : totalPriceNumber;\n  const currency = order.currency || 'USD';\n  const totalPriceDisplay = totalPriceSafe.toFixed(2) + ' ' + currency;\n\n  results.push({\n    json: {\n      // Extracted fields\n      order_id: order.id || null,\n      order_number: order.order_number ? String(order.order_number) : null,\n      customer_email: customerEmail,\n      customer_name: customerName,\n      total_price: totalPriceSafe,\n      total_price_display: totalPriceDisplay,\n      currency: currency,\n      financial_status: order.financial_status || null,\n      line_items: lineItems,\n      created_at: order.created_at || null,\n      shop_domain: shopDomain,\n\n      // Verification context carried forward\n      verified: verified,\n      webhook_id: webhookId,\n      topic: topic,\n\n      // Preserve raw data for the audit log\n      order_raw: order,\n      webhook_headers: headers\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "d86caafa-ac94-4ae7-9643-fa2d40e1cf03",
+      "name": "Extract Order Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the HTML and plain-text confirmation email bodies.\n// All styles are inline. No <style> blocks. No external assets.\n// User content is HTML-escaped before insertion.\n\nconst results = [];\n\n// HTML entity escaping for safe interpolation into the email template\nfunction escHtml(s) {\n  if (s === null || s === undefined) return '';\n  return String(s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const d = $input.all()[i].json;\n\n  // Subject line: prefer order_number, fall back to order_id\n  const orderLabel = d.order_number ? d.order_number : String(d.order_id);\n  const subject = 'Order ' + orderLabel + ' confirmed';\n\n  // Customer greeting\n  const greeting = d.customer_name ? ('Hi ' + d.customer_name + ',') : 'Hi,';\n\n  // Line items rows for the HTML table\n  const lineItemRowsHtml = d.line_items.map(function (li) {\n    return '' +\n      '<tr>' +\n        '<td style=\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:left;\">' +\n          escHtml(li.title) +\n        '</td>' +\n        '<td style=\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:center;\">' +\n          li.quantity +\n        '</td>' +\n        '<td style=\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:right;\">' +\n          li.price.toFixed(2) + ' ' + escHtml(d.currency) +\n        '</td>' +\n      '</tr>';\n  }).join('');\n\n  // Line items for the plain-text body\n  const lineItemsText = d.line_items.map(function (li) {\n    return '  - ' + li.title + ' x' + li.quantity + '  ' + li.price.toFixed(2) + ' ' + d.currency;\n  }).join('\\n');\n\n  // HTML body\n  const html_body = '' +\n    '<!DOCTYPE html>' +\n    '<html lang=\"en\">' +\n    '<head>' +\n      '<meta charset=\"utf-8\">' +\n      '<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">' +\n      '<title>' + escHtml(subject) + '</title>' +\n    '</head>' +\n    '<body style=\"margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,\\'Segoe UI\\',Roboto,Arial,sans-serif;\">' +\n      '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f4f4f5;\">' +\n        '<tr>' +\n          '<td align=\"center\" style=\"padding:24px 12px;\">' +\n            '<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;\">' +\n              '<tr>' +\n                '<td style=\"background-color:#111827;padding:24px;text-align:center;\">' +\n                  '<span style=\"color:#ffffff;font-size:18px;font-weight:600;letter-spacing:0.02em;\">' + escHtml(d.shop_domain) + '</span>' +\n                '</td>' +\n              '</tr>' +\n              '<tr>' +\n                '<td style=\"padding:32px 24px 8px 24px;\">' +\n                  '<h1 style=\"margin:0 0 16px 0;font-size:22px;line-height:1.3;color:#111827;font-weight:600;\">Order confirmed</h1>' +\n                  '<p style=\"margin:0 0 8px 0;font-size:15px;line-height:1.5;color:#374151;\">' + escHtml(greeting) + '</p>' +\n                  '<p style=\"margin:0 0 24px 0;font-size:15px;line-height:1.5;color:#374151;\">Thanks for your order. Here is what we received:</p>' +\n                '</td>' +\n              '</tr>' +\n              '<tr>' +\n                '<td style=\"padding:0 24px;\">' +\n                  '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">' +\n                    '<tr>' +\n                      '<td style=\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:left;\">Item</td>' +\n                      '<td style=\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:center;\">Qty</td>' +\n                      '<td style=\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:right;\">Price</td>' +\n                    '</tr>' +\n                    lineItemRowsHtml +\n                  '</table>' +\n                '</td>' +\n              '</tr>' +\n              '<tr>' +\n                '<td style=\"padding:24px;\">' +\n                  '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">' +\n                    '<tr>' +\n                      '<td style=\"padding:8px;font-size:15px;color:#111827;font-weight:600;text-align:right;\">Total</td>' +\n                      '<td style=\"padding:8px;font-size:15px;color:#111827;font-weight:600;text-align:right;width:120px;\">' + escHtml(d.total_price_display) + '</td>' +\n                    '</tr>' +\n                  '</table>' +\n                '</td>' +\n              '</tr>' +\n              '<tr>' +\n                '<td style=\"padding:0 24px 32px 24px;\">' +\n                  '<p style=\"margin:0;font-size:14px;line-height:1.5;color:#6b7280;\">' +\n                    'Order reference: ' + escHtml(orderLabel) +\n                  '</p>' +\n                '</td>' +\n              '</tr>' +\n              '<tr>' +\n                '<td style=\"background-color:#f9fafb;padding:20px 24px;border-top:1px solid #e5e7eb;\">' +\n                  '<p style=\"margin:0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center;\">' +\n                    'This message was sent automatically by ' + escHtml(d.shop_domain) +\n                  '</p>' +\n                '</td>' +\n              '</tr>' +\n            '</table>' +\n          '</td>' +\n        '</tr>' +\n      '</table>' +\n    '</body>' +\n    '</html>';\n\n  // Plain-text fallback\n  const text_body = '' +\n    subject + '\\n\\n' +\n    greeting + '\\n\\n' +\n    'Thanks for your order. Here is what we received:\\n\\n' +\n    lineItemsText + '\\n\\n' +\n    'Total: ' + d.total_price_display + '\\n\\n' +\n    'Order reference: ' + orderLabel + '\\n\\n' +\n    'This message was sent automatically by ' + d.shop_domain + '\\n';\n\n  results.push({\n    json: Object.assign({}, d, {\n      subject: subject,\n      html_body: html_body,\n      text_body: text_body\n    })\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "d2a6b503-e421-4553-a928-51deddd5c2de",
+      "name": "Build Confirmation Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Precompute the full Resend API request body as a JSON string.\n// The html_body contains newlines and quotes that break inline JSON interpolation.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const d = $input.all()[i].json;\n\n  const body = {\n    from: 'onboarding@resend.dev',\n    to: d.customer_email,\n    subject: d.subject,\n    html: d.html_body,\n    text: d.text_body\n  };\n\n  results.push({\n    json: Object.assign({}, d, {\n      body_string: JSON.stringify(body)\n    })\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "e6f1c56a-6f6e-4e3a-9a87-e35018d9450f",
+      "name": "Build Resend Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"from\":\"onboarding@resend.dev\",\"to\":\"arroyo_bing@yahoo.com.ph\",\"subject\":\"Order 1234567890 confirmed\",\"html\":\"<!DOCTYPE html><html lang=\\\"en\\\"><head><meta charset=\\\"utf-8\\\"><meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\"><title>Order 1234567890 confirmed</title></head><body style=\\\"margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;\\\"><table role=\\\"presentation\\\" width=\\\"100%\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" border=\\\"0\\\" style=\\\"background-color:#f4f4f5;\\\"><tr><td align=\\\"center\\\" style=\\\"padding:24px 12px;\\\"><table role=\\\"presentation\\\" width=\\\"600\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" border=\\\"0\\\" style=\\\"max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;\\\"><tr><td style=\\\"background-color:#111827;padding:24px;text-align:center;\\\"><span style=\\\"color:#ffffff;font-size:18px;font-weight:600;letter-spacing:0.02em;\\\">YOUR_SHOPIFY_SHOP</span></td></tr><tr><td style=\\\"padding:32px 24px 8px 24px;\\\"><h1 style=\\\"margin:0 0 16px 0;font-size:22px;line-height:1.3;color:#111827;font-weight:600;\\\">Order confirmed</h1><p style=\\\"margin:0 0 8px 0;font-size:15px;line-height:1.5;color:#374151;\\\">Hi,</p><p style=\\\"margin:0 0 24px 0;font-size:15px;line-height:1.5;color:#374151;\\\">Thanks for your order. Here is what we received:</p></td></tr><tr><td style=\\\"padding:0 24px;\\\"><table role=\\\"presentation\\\" width=\\\"100%\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" border=\\\"0\\\"><tr><td style=\\\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:left;\\\">Item</td><td style=\\\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:center;\\\">Qty</td><td style=\\\"padding:8px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;text-align:right;\\\">Price</td></tr><tr><td style=\\\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:left;\\\">Test Product</td><td style=\\\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:center;\\\">1</td><td style=\\\"padding:12px 8px;border-bottom:1px solid #eaeaea;font-size:14px;color:#333333;text-align:right;\\\">99.99 USD</td></tr></table></td></tr><tr><td style=\\\"padding:24px;\\\"><table role=\\\"presentation\\\" width=\\\"100%\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" border=\\\"0\\\"><tr><td style=\\\"padding:8px;font-size:15px;color:#111827;font-weight:600;text-align:right;\\\">Total</td><td style=\\\"padding:8px;font-size:15px;color:#111827;font-weight:600;text-align:right;width:120px;\\\">99.99 USD</td></tr></table></td></tr><tr><td style=\\\"padding:0 24px 32px 24px;\\\"><p style=\\\"margin:0;font-size:14px;line-height:1.5;color:#6b7280;\\\">Order reference: 1234567890</p></td></tr><tr><td style=\\\"background-color:#f9fafb;padding:20px 24px;border-top:1px solid #e5e7eb;\\\"><p style=\\\"margin:0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center;\\\">This message was sent automatically by YOUR_SHOPIFY_SHOP</p></td></tr></table></td></tr></table></body></html>\",\"text\":\"Order 1234567890 confirmed\\n\\nHi,\\n\\nThanks for your order. Here is what we received:\\n\\n  - Test Product x1  99.99 USD\\n\\nTotal: 99.99 USD\\n\\nOrder reference: 1234567890\\n\\nThis message was sent automatically by YOUR_SHOPIFY_SHOP\\n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "1cca49aa-b096-4139-a247-9a9ada328e1a",
+      "name": "Send Confirmation Email",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KTyLryVIDxoo1Frx",
+          "name": "Resend API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SHOPIFY_SHOP/admin/api/2026-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation noteAdd($id: ID!, $note: String!) { orderUpdate(input: { id: $id, note: $note }) { order { id note } userErrors { field message } } }\", variables: { id: \"gid://shopify/Order/\" + $('Extract Order Fields').item.json.order_id, note: \"Order confirmation email sent via Resend. Resend message ID: \" + $('Send Confirmation Email').item.json.id } }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "cd9fece2-5432-4a06-bd23-f37a0102b743",
+      "name": "Add Fulfillment Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SHOPIFY_SHOP/admin/oauth/access_token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "160a41613ddcfc4301875d3968aeea99"
+            },
+            {
+              "name": "client_secret",
+              "value": "YOUR_SHOPIFY_CLIENT_SECRET"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "089ca107-428f-46c7-b9c9-539f44516ced",
+      "name": "Fetch Shopify Token"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO shopify_webhook_runs (\n  webhook_id,\n  topic,\n  order_id,\n  order_number,\n  customer_email,\n  total_price,\n  currency,\n  financial_status,\n  resend_message_id,\n  shopify_note_status,\n  shop_domain,\n  order_raw,\n  webhook_headers,\n  processed_at\n) VALUES (\n  '{{ $('Extract Order Fields').item.json.webhook_id.replace(/'/g, \"''\") }}',\n  '{{ $('Extract Order Fields').item.json.topic.replace(/'/g, \"''\") }}',\n  '{{ String($('Extract Order Fields').item.json.order_id).replace(/'/g, \"''\") }}',\n  '{{ ($('Extract Order Fields').item.json.order_number || '').replace(/'/g, \"''\") }}',\n  '{{ ($('Extract Order Fields').item.json.customer_email || '').replace(/'/g, \"''\") }}',\n  {{ Number($('Extract Order Fields').item.json.total_price) }},\n  '{{ $('Extract Order Fields').item.json.currency.replace(/'/g, \"''\") }}',\n  '{{ $('Extract Order Fields').item.json.financial_status.replace(/'/g, \"''\") }}',\n  '{{ $('Send Confirmation Email').item.json.id.replace(/'/g, \"''\") }}',\n  'success',\n  '{{ $('Extract Order Fields').item.json.shop_domain.replace(/'/g, \"''\") }}',\n  '{{ JSON.stringify($('Extract Order Fields').item.json.order_raw).replace(/'/g, \"''\") }}'::jsonb,\n  '{{ JSON.stringify($('Extract Order Fields').item.json.webhook_headers).replace(/'/g, \"''\") }}'::jsonb,\n  NOW()\n)\nON CONFLICT (webhook_id) DO NOTHING;",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1664,
+        0
+      ],
+      "id": "0e0a0d15-f077-48b0-8744-819bf86556d1",
+      "name": "Log Run to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Shopify Order": {
+      "main": [
+        [
+          {
+            "node": "Verify Shopify HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Shopify HMAC": {
+      "main": [
+        [
+          {
+            "node": "Extract Order Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Order Fields": {
+      "main": [
+        [
+          {
+            "node": "Build Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Build Resend Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Resend Body": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Fetch Shopify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Shopify Token": {
+      "main": [
+        [
+          {
+            "node": "Add Fulfillment Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Fulfillment Note": {
+      "main": [
+        [
+          {
+            "node": "Log Run to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "feqJXoXrznywBh3Y",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "49a5876c-2bf0-49df-84bd-e492bd6a52fc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "6FWQSPxPcygsTl96",
+  "tags": []
+}
