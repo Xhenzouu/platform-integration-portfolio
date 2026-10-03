@@ -54,6 +54,48 @@ Happy path with test webhook ID `test-webhook-id-015`:
 | Add Fulfillment Note | userErrors empty, order.note updated with Resend message ID |
 | Log Run to Supabase | row inserted with shopify_note_status = 'success' |
 
+![Shopify Order Confirmation Pipeline — full canvas, all nodes green](../images/02-canvas.png)
+
+Error path with test webhook ID `error-exec-326`:
+
+| Stage | Result |
+|-------|--------|
+| Workflow fails at Add Fulfillment Note | execution 326 fails |
+| Error Trigger fires | error handler workflow runs |
+| Parse Error Context | extracts error_node, error_message, error class |
+| Log Error to Supabase | row inserted with shopify_note_status = 'failed', error_message populated |
+
+![Shopify Order Error Handler — full canvas, all nodes green](../images/02-error-handler-canvas.png)
+
+**Confirmation email.** Rendered in the customer's inbox with the order summary and total.
+
+![HTML confirmation email as rendered in an email client](../images/02-email.png)
+
+**Shopify order note.** The fulfillment note the workflow writes back to the order, referencing the Resend message ID.
+
+![Shopify order detail showing the note added by the app](../images/02-shopify-note.png)
+
+**Supabase audit log, happy path.** The row written by a successful run.
+
+![Supabase row showing shopify_note_status = success](../images/02-supabase-success.png)
+
+**Supabase audit log, error path.** The row written when the error handler catches a failure.
+
+![Supabase row showing shopify_note_status = failed with error_message populated](../images/02-supabase-error.png)
+
+Happy path with test webhook ID `test-webhook-id-015`:
+
+| Stage | Result |
+|-------|--------|
+| Webhook receives payload | 1 item, HMAC header present |
+| HMAC verification | passes, order parsed |
+| Extract Order Fields | customer_email, order_id, line_items populated |
+| Build Confirmation Email | HTML renders with dark header, line items table, total |
+| Send Confirmation Email | Resend returns email ID `01a10136-...` |
+| Fetch Shopify Token | token prefix `shpca_`, scope write_customers,write_orders, expires in 86399s |
+| Add Fulfillment Note | userErrors empty, order.note updated with Resend message ID |
+| Log Run to Supabase | row inserted with shopify_note_status = 'success' |
+
 Error path with test webhook ID `error-exec-326`:
 
 | Stage | Result |
