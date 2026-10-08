@@ -1,0 +1,90 @@
+﻿{
+  "name": "Airtable Notion Sync Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "87a6baed-4fb1-4b09-ae68-624a9531e30f",
+      "name": "Catch Sync Failure"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the INSERT statement for a failed sync run.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const trigger = $input.all()[i].json;\n\n  let executionId = null;\n  let errorNode = null;\n  let errorMessage = null;\n  let errorClass = null;\n  let executionUrl = null;\n\n  if (trigger.execution) {\n    executionId = trigger.execution.id ? String(trigger.execution.id) : null;\n    executionUrl = trigger.execution.url || null;\n    if (trigger.execution.error) {\n      errorClass = trigger.execution.error.name || null;\n      errorMessage = trigger.execution.error.description || trigger.execution.error.message || null;\n      if (trigger.execution.error.node) {\n        errorNode = trigger.execution.error.node.name || null;\n      }\n    }\n    if (!errorNode && trigger.execution.lastNodeExecuted) {\n      errorNode = trigger.execution.lastNodeExecuted;\n    }\n  }\n\n  if (!errorNode && trigger.lastNodeExecuted) errorNode = trigger.lastNodeExecuted;\n  if (!errorMessage && trigger.message) errorMessage = trigger.message;\n  if (!errorClass && trigger.name) errorClass = trigger.name;\n\n  const errorTimestamp = (trigger.executionContext && trigger.executionContext.establishedAt)\n    ? trigger.executionContext.establishedAt\n    : Date.now();\n\n  const parts = [];\n  if (errorClass) parts.push(errorClass);\n  if (errorNode) parts.push(errorNode);\n  if (errorMessage) parts.push(errorMessage);\n  if (executionUrl) parts.push(executionUrl);\n  const fullMessage = parts.join(': ').slice(0, 1000);\n\n  const esc = (v) => {\n    if (v === null || v === undefined) return 'NULL';\n    return \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n  };\n\n  const sql = `INSERT INTO airtable_notion_sync_runs (\n    run_started_at,\n    run_completed_at,\n    status,\n    records_created,\n    records_updated,\n    conflicts_detected,\n    conflicts_flagged,\n    errors_count,\n    conflict_details,\n    error_details\n  ) VALUES (\n    NOW(),\n    NOW(),\n    'error',\n    0,\n    0,\n    0,\n    0,\n    1,\n    NULL,\n    ${esc(fullMessage)}\n  );`;\n\n  results.push({\n    json: {\n      execution_id: executionId,\n      error_node: errorNode,\n      error_class: errorClass,\n      error_message: fullMessage,\n      sql_query: sql\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "91251192-6ccc-49ff-b2a3-1963d815d71c",
+      "name": "Build Sync Error SQL"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.sql_query }}",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "3e9f9d0a-46e6-455f-b284-90d09b50dd3d",
+      "name": "Log Sync Error",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Catch Sync Failure": {
+      "main": [
+        [
+          {
+            "node": "Build Sync Error SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sync Error SQL": {
+      "main": [
+        [
+          {
+            "node": "Log Sync Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "2b36a5cb-dfcd-4141-8ac7-6c1a236cc576",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "hDNzoibmuvCHpdeR",
+  "tags": []
+}

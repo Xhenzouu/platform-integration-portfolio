@@ -1,0 +1,414 @@
+﻿{
+  "name": "Airtable Notion Two-Way Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    airtable_record_id,\n    notion_page_id,\n    last_synced_at,\n    last_airtable_modified_at,\n    last_notion_edited_at,\n    conflict_count,\n    current_status\nFROM airtable_notion_sync_state\nORDER BY airtable_record_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "74edbe51-719c-41be-9cb9-e822bc7ac1d6",
+      "name": "Read Sync State",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=AIRTABLE_BASE_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "b1fd69ba-b2c9-4118-b1fb-229c2be28259",
+      "name": "Fetch Airtable Changed",
+      "alwaysOutputData": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "o6STnyYWl6GnIsJy",
+          "name": "Airtable PAT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "DATABASE_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        96
+      ],
+      "id": "cb68f7b1-4520-4fc1-9d2a-4ee6604f05a8",
+      "name": "Fetch Notion Changed",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "PCL7DVJo6nNQV3Ih",
+          "name": "Notion Internal"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        16,
+        0
+      ],
+      "id": "2530c1a3-f2d7-4d87-bc27-3bbc2621cc0c",
+      "name": "When clicking â€˜Execute workflowâ€™"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.all();\nconst out = [];\n\nfor (const item of input) {\n  const json = item.json;\n  if (json.target === 'airtable') {\n    out.push(item);\n  }\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        0
+      ],
+      "id": "60dd4163-04bc-4bfb-9f7d-facadf5a8dff",
+      "name": "Split: Airtable Writes"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "AIRTABLE_BASE_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: $json.payload }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "60bd286a-9f04-41ed-bd88-5a3766544753",
+      "name": "Write to Airtable",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "o6STnyYWl6GnIsJy",
+          "name": "Airtable PAT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO airtable_notion_sync_state (\n  airtable_record_id,\n  notion_page_id,\n  last_synced_at,\n  last_airtable_modified_at,\n  last_notion_edited_at,\n  conflict_count,\n  current_status\n) VALUES (\n  '{{ $('Write to Airtable').item.json.body.id }}',\n  '{{ $('Split: Airtable Writes').item.json.notion_page_id }}',\n  NOW(),\n  '{{ $('Write to Airtable').item.json.body.fields['Last Modified'] }}'::timestamptz,\n  '{{ $('Split: Airtable Writes').item.json.current_notion_edited }}'::timestamptz,\n  0,\n  'active'\n)\nON CONFLICT (notion_page_id) DO UPDATE SET\n  airtable_record_id = EXCLUDED.airtable_record_id,\n  last_synced_at = EXCLUDED.last_synced_at,\n  last_airtable_modified_at = EXCLUDED.last_airtable_modified_at,\n  last_notion_edited_at = EXCLUDED.last_notion_edited_at,\n  current_status = 'active';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2048,
+        0
+      ],
+      "id": "fb927f7a-c8a2-4380-baec-cb5562d3e63b",
+      "name": "Update Sync State",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO airtable_notion_sync_runs (\n  run_started_at, run_completed_at, status,\n  records_created, records_updated,\n  conflicts_detected, conflicts_flagged,\n  errors_count, conflict_details\n) VALUES (\n  NOW(), NOW(),\n  CASE WHEN {{ $('Merge & Classify').all().length }} > 0 THEN 'success' ELSE 'success' END,\n  {{ $('Merge & Classify').all().filter(i => i.json.operation === 'create').length }},\n  {{ $('Merge & Classify').all().filter(i => i.json.operation === 'update').length }},\n  0, 0, 0, NULL\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2256,
+        0
+      ],
+      "id": "9cc9851f-7c47-40f2-a9dc-08fb6568d834",
+      "name": "Write Run Summary",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve Conflicts â€” pass-through for now\n// Conflict policy application is a Roadmap item.\n\nconst input = $input.all();\nconst writeOps = [];\n\nfor (const item of input) {\n  const json = item.json;\n  if (json.operation === 'conflict') {\n    // No conflict policy yet. Drop for now.\n    continue;\n  }\n  writeOps.push(item);\n}\n\nreturn writeOps;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "id": "54a1c4ae-93a9-4641-88a8-420755e2fbdc",
+      "name": "Resolve Conflicts"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { _placeholder: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "4e5859f2-3bff-4050-8980-8bedf5bacc23",
+      "name": "Ensure Non-Empty Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  // n8n wraps Airtable responses one of two ways depending on config\n  let records = null;\n  if (Array.isArray(j) && j[0] && Array.isArray(j[0].records)) records = j[0].records;\n  else if (Array.isArray(j.records)) records = j.records;\n  else if (j.body && Array.isArray(j.body.records)) records = j.body.records;\n\n  if (records) {\n    for (const rec of records) {\n      out.push({ json: { _source: 'airtable', ...rec } });\n    }\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -96
+      ],
+      "id": "cecaa374-86c9-44c2-aff3-4c1dd1c8804d",
+      "name": "Extract Airtable Records"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  let results = null;\n  if (Array.isArray(j) && j[0] && Array.isArray(j[0].results)) results = j[0].results;\n  else if (Array.isArray(j.results)) results = j.results;\n  else if (j.body && Array.isArray(j.body.results)) results = j.body.results;\n\n  if (results) {\n    for (const page of results) {\n      if (page.object === 'page') {\n        out.push({ json: { _source: 'notion', ...page } });\n      }\n    }\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        96
+      ],
+      "id": "741f0716-4955-4c4c-acfb-776590a6a6fb",
+      "name": "Extract Notion Records"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "99c6cdc2-3f8b-49df-9b4a-db44f1e3cfb7",
+      "name": "Combine Records"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputItems = $input.all();\nconst syncStateRows = $('Read Sync State').all().map(item => item.json);\nconst syncStateByAirtableId = {};\nconst syncStateByNotionId = {};\n\nfor (const row of syncStateRows) {\n  if (row.airtable_record_id) syncStateByAirtableId[row.airtable_record_id] = row;\n  if (row.notion_page_id)     syncStateByNotionId[row.notion_page_id]     = row;\n}\n\nconst airtableItems = [];\nconst notionItems = [];\n\nfor (const item of inputItems) {\n  const json = item.json;\n  if (json._source === 'airtable') airtableItems.push(json);\n  else if (json._source === 'notion') notionItems.push(json);\n}\n\nconst operations = [];\n\nfor (const airtableRecord of airtableItems) {\n  const airtableId = airtableRecord.id;\n  const state = syncStateByAirtableId[airtableId];\n  const currentAirtableModified = (airtableRecord.fields && airtableRecord.fields['Last Modified']) || null;\n\n  if (!state) {\n    operations.push({\n      operation: 'create', target: 'notion',\n      airtable_record_id: airtableId, notion_page_id: null,\n      payload: mapAirtableToNotionProperties(airtableRecord.fields || {}),\n      current_airtable_modified: currentAirtableModified,\n      current_notion_edited: null, previous_status: null\n    });\n    continue;\n  }\n\n  const currentTs = currentAirtableModified ? new Date(currentAirtableModified).getTime() : 0;\n  const lastSyncedTs = state.last_airtable_modified_at ? new Date(state.last_airtable_modified_at).getTime() : 0;\n  const airtableChanged = Math.abs(currentTs - lastSyncedTs) > 2000;\n\n  const notionPage = notionItems.find(p => p.id === state.notion_page_id);\n  if (!notionPage) continue;\n\n  const currentNotionEdited = notionPage.last_edited_time || null;\n  const notionTs = currentNotionEdited ? new Date(currentNotionEdited).getTime() : 0;\n  const lastSyncedNotionTs = state.last_notion_edited_at ? new Date(state.last_notion_edited_at).getTime() : 0;\n  const notionChanged = Math.abs(notionTs - lastSyncedNotionTs) > 2000;\n\n  if (airtableChanged && notionChanged) {\n    operations.push({\n      operation: 'conflict', target: 'both',\n      airtable_record_id: airtableId, notion_page_id: state.notion_page_id,\n      payload: { airtable_fields: airtableRecord.fields || {}, notion_properties: notionPage.properties || null },\n      current_airtable_modified: currentAirtableModified,\n      current_notion_edited: currentNotionEdited,\n      previous_status: state.current_status || 'active'\n    });\n  } else if (airtableChanged) {\n    operations.push({\n      operation: 'update', target: 'notion',\n      airtable_record_id: airtableId, notion_page_id: state.notion_page_id,\n      payload: mapAirtableToNotionProperties(airtableRecord.fields || {}),\n      current_airtable_modified: currentAirtableModified,\n      current_notion_edited: state.last_notion_edited_at,\n      previous_status: state.current_status || 'active'\n    });\n  } else if (notionChanged && notionPage.properties) {\n    operations.push({\n      operation: 'update', target: 'airtable',\n      airtable_record_id: airtableId, notion_page_id: state.notion_page_id,\n      payload: mapNotionToAirtableFields(notionPage.properties),\n      current_airtable_modified: state.last_airtable_modified_at,\n      current_notion_edited: currentNotionEdited,\n      previous_status: state.current_status || 'active'\n    });\n  }\n}\n\nfor (const notionPage of notionItems) {\n  const notionId = notionPage.id;\n  const state = syncStateByNotionId[notionId];\n  if (!state) {\n    operations.push({\n      operation: 'create', target: 'airtable',\n      airtable_record_id: null, notion_page_id: notionId,\n      payload: mapNotionToAirtableFields(notionPage.properties || {}),\n      current_airtable_modified: null,\n      current_notion_edited: notionPage.last_edited_time || null,\n      previous_status: null\n    });\n  }\n}\n\nconst outputItems = operations.length > 0\n  ? operations.map(op => ({ json: op }))\n  : [{ json: { _noop: true } }];\n\nreturn outputItems;\n\nfunction mapAirtableToNotionProperties(airtableFields) {\n  const properties = {};\n  if (airtableFields['Name'] !== undefined) properties['Name'] = { title: [{ text: { content: String(airtableFields['Name'] || '') } }] };\n  if (airtableFields['Status'] !== undefined) properties['Status'] = { status: { name: String(airtableFields['Status'] || '') } };\n  if (airtableFields['Priority'] !== undefined) {\n    const v = airtableFields['Priority'];\n    properties['Priority'] = { number: typeof v === 'number' ? v : (v === null || v === '' ? null : Number(v)) };\n  }\n  if (airtableFields['Due Date'] !== undefined) properties['Due Date'] = { date: { start: airtableFields['Due Date'] ? String(airtableFields['Due Date']) : null } };\n  if (airtableFields['Assignee'] !== undefined) properties['Assignee'] = { rich_text: [{ text: { content: String(airtableFields['Assignee'] || '') } }] };\n  return properties;\n}\n\nfunction mapNotionToAirtableFields(notionProperties) {\n  const fields = {};\n  if (notionProperties['Name'] && notionProperties['Name'].title) fields['Name'] = notionProperties['Name'].title.map(t => t.plain_text).join('');\n  if (notionProperties['Status'] && notionProperties['Status'].status) fields['Status'] = notionProperties['Status'].status.name;\n  if (notionProperties['Priority'] && notionProperties['Priority'].number !== undefined) fields['Priority'] = notionProperties['Priority'].number;\n  if (notionProperties['Due Date'] && notionProperties['Due Date'].date) fields['Due Date'] = notionProperties['Due Date'].date.start;\n  if (notionProperties['Assignee'] && notionProperties['Assignee'].rich_text) fields['Assignee'] = notionProperties['Assignee'].rich_text.map(t => t.plain_text).join('');\n  return fields;\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "39d145df-6ce3-49e9-b1f6-914238e3ab10",
+      "name": "Merge & Classify"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Read Sync State": {
+      "main": [
+        [
+          {
+            "node": "Ensure Non-Empty Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Airtable Changed": {
+      "main": [
+        [
+          {
+            "node": "Extract Airtable Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Notion Changed": {
+      "main": [
+        [
+          {
+            "node": "Extract Notion Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking â€˜Execute workflowâ€™": {
+      "main": [
+        [
+          {
+            "node": "Read Sync State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split: Airtable Writes": {
+      "main": [
+        [
+          {
+            "node": "Write to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to Airtable": {
+      "main": [
+        [
+          {
+            "node": "Update Sync State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sync State": {
+      "main": [
+        [
+          {
+            "node": "Write Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Conflicts": {
+      "main": [
+        [
+          {
+            "node": "Split: Airtable Writes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Non-Empty Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Notion Changed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Airtable Changed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Airtable Records": {
+      "main": [
+        [
+          {
+            "node": "Combine Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Notion Records": {
+      "main": [
+        [
+          {
+            "node": "Combine Records",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Records": {
+      "main": [
+        [
+          {
+            "node": "Merge & Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge & Classify": {
+      "main": [
+        [
+          {
+            "node": "Resolve Conflicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hDNzoibmuvCHpdeR",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "acd85ee6-7483-426a-b396-09509a40b1aa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "HuVzRQPuibLm0CB2",
+  "tags": []
+}

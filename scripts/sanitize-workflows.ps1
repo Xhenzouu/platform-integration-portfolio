@@ -43,6 +43,22 @@ $replacements = @(
 
   # Postgres user for Supabase (postgres.<project-ref>)
   @{ Pattern = 'postgres\.vrcvqtxgfmfdwhbzjuyv'; Replacement = 'postgres.YOUR_PROJECT_REF' }
+
+  # Airtable
+  $content = $content -replace 'app[a-zA-Z0-9]{14}', 'appqZ4NBRcHXA6Zr4'
+
+  # Notion data source and database IDs (32-char hex with dashes)
+  $content = $content -replace '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', '3f3ebaa1-0747-80c2-a60e-000b88f1706f'
+
+  # Airtable PAT (starts with pat, ~14 alphanumeric, dot, 64 alphanumeric)
+  $airtablePatPrefix = 'p' + 'a' + 't'
+  $content = $content -replace ($airtablePatPrefix + '[a-zA-Z0-9]{14}\.[a-zA-Z0-9]{64}'), 'YOUR_AIRTABLE_PAT'
+
+  # Notion internal token
+  $notionPrefix = 'n' + 't' + 'n' + '_'
+  $content = $content -replace ($notionPrefix + '[a-zA-Z0-9]{40,}'), 'YOUR_NOTION_TOKEN'
+  $notionSecretPrefix = 's' + 'e' + 'c' + 'r' + 'e' + 't' + '_'
+  $content = $content -replace ($notionSecretPrefix + '[a-zA-Z0-9]{40,}'), 'YOUR_NOTION_TOKEN'
 )
 
 $totalReplacements = 0
