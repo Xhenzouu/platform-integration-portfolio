@@ -22,6 +22,7 @@ The two repos are designed to be read together. This one shows how to connect to
 |---|----------|-----------|---------|
 | 1 | [HubSpot Lead Enrichment Pipeline](docs/workflows/01-hubspot-lead-enrichment-pipeline.md) | HubSpot, Apify, Groq, Supabase | Inbound lead, enrich, score, create contact and conditional deal |
 | 2 | [Shopify Order Confirmation Pipeline](docs/workflows/02-shopify-order-confirmation-pipeline.md) | Shopify, Resend, Supabase | Order webhook, HMAC verify, HTML email, order note, audit log |
+| 3 | [Shopify to HubSpot Customer Sync](docs/workflows/03-shopify-to-hubspot-customer-sync.md) | Shopify, HubSpot, Supabase | Scheduled sync, cursor pagination, batch upsert, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
@@ -92,6 +93,8 @@ Setup instructions will be added as each workflow lands. They will cover:
 Workflow 1 shipped. HubSpot Lead Enrichment Pipeline runs end-to-end from webhook to CRM write to audit log.
 
 Workflow 2 shipped. Shopify Order Confirmation Pipeline runs end-to-end from Shopify webhook to Resend email to Shopify order note to Supabase audit log, with a companion error handler workflow that writes failure rows to the same audit table.
+
+Workflow 3 shipped. Shopify to HubSpot Customer Sync runs on a schedule, fetches customers updated since the last cursor, upserts them into HubSpot with order count and lifetime spend, and records every run and every failure in Supabase.
 
 More workflows will be added incrementally.
 

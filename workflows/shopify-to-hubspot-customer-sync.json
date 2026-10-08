@@ -1,0 +1,367 @@
+﻿{
+  "name": "Shopify to HubSpot Customer Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "bffa9b56-15f0-42cd-9e59-fc9f86ecb821",
+      "name": "Sync Schedule"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  last_updated_at,\n  last_run_id,\n  NOW() AS run_started_at,\n  'run-' || EXTRACT(EPOCH FROM NOW())::bigint AS run_id\nFROM customer_sync_state\nWHERE id = 1;",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "d2eabcef-9703-4728-b7ee-cfb6602ea4f3",
+      "name": "Read Sync Cursor",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SHOPIFY_SHOP/admin/api/2026-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query FetchCustomers($cursor: String, $pageSize: Int!) { customers(first: $pageSize, after: $cursor, sortKey: UPDATED_AT, reverse: true) { edges { cursor node { id email firstName lastName numberOfOrders amountSpent { amount currencyCode } updatedAt } } pageInfo { hasNextPage endCursor } } }\", variables: { cursor: null, pageSize: 2 } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        0
+      ],
+      "id": "eb8b9658-b034-4625-85ab-60e3268ade93",
+      "name": "Fetch Shopify Customers"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SHOPIFY_SHOP/admin/oauth/access_token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "160a41613ddcfc4301875d3968aeea99"
+            },
+            {
+              "name": "client_secret",
+              "value": "YOUR_SHOPIFY_CLIENT_SECRET"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "823b8b5b-aa8d-4752-b84e-1cda37654a6b",
+      "name": "Fetch Shopify Token"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Iterate the Shopify customer pagination chain.\n// Uses the current page's pageInfo.endCursor to fetch the next page.\n// Breaks early if a customer's updatedAt is older than the cursor.\n\nconst crypto = { randomUUID: () => Math.random().toString(36).substring(2) + Date.now().toString(36) };\n\nconst firstPage = $input.first().json;\nconst lastCursor = $('Read Sync Cursor').first().json.last_updated_at;\nconst accessToken = $('Fetch Shopify Token').first().json.access_token;\nconst shopUrl = 'https://YOUR_SHOPIFY_SHOP/admin/api/2026-10/graphql.json';\n\nconst allCustomers = [];\nlet page = firstPage;\nlet pageCount = 0;\nlet done = false;\n\nwhile (!done) {\n  const edges = page.data.customers.edges || [];\n  pageCount++;\n\n  for (const edge of edges) {\n    const node = edge.node;\n    const updatedAt = node.updatedAt;\n\n    if (new Date(updatedAt) <= new Date(lastCursor)) {\n      // Reached customers older than the cursor. Stop.\n      done = true;\n      break;\n    }\n\n    allCustomers.push(node);\n  }\n\n  const hasNextPage = page.data.customers.pageInfo.hasNextPage;\n  if (!hasNextPage || done) {\n    break;\n  }\n\n  const endCursor = page.data.customers.pageInfo.endCursor;\n\n  // Fetch next page\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: shopUrl,\n    headers: {\n      'X-Shopify-Access-Token': accessToken,\n      'Content-Type': 'application/json'\n    },\n    body: JSON.stringify({\n      query: 'query FetchCustomers($cursor: String, $pageSize: Int!) { customers(first: $pageSize, after: $cursor, sortKey: UPDATED_AT, reverse: true) { edges { cursor node { id email firstName lastName numberOfOrders amountSpent { amount currencyCode } updatedAt } } pageInfo { hasNextPage endCursor } } }',\n      variables: { cursor: endCursor, pageSize: 2 }\n    }),\n    json: true\n  });\n\n  page = response;\n}\n\nconst runStartedAt = $('Read Sync Cursor').first().json.run_started_at;\n\nreturn [{\n  json: {\n    customers: allCustomers,\n    total_fetched: allCustomers.length,\n    pages_fetched: pageCount,\n    last_cursor_from_shopify: firstPage.data.customers.pageInfo.endCursor,\n    run_started_at: runStartedAt\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "e6f2e8ee-bfe0-4401-b4a8-e9f4d7825314",
+      "name": "Loop Customer Pages"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reshape the Shopify customer array into two output shapes:\n//  - one summary item with skip counts and the highest updated_at\n//  - one customer item per valid customer (skips those with no email)\n//\n// Downstream nodes filter on json.type.\n\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n\n  const customers = Array.isArray(item.json.customers) ? item.json.customers : [];\n  const run_id = $('Read Sync Cursor').first().json.run_id;\n  const last_updated_at = $('Read Sync Cursor').first().json.last_updated_at;\n\n  let skipped_no_email = 0;\n  let highest_updated_at = last_updated_at;\n\n  for (const c of customers) {\n    // Track the highest updatedAt across all fetched customers, including skipped ones.\n    // The cursor advance uses this value; skip decisions do not affect it.\n    if (c.updatedAt) {\n      const cUpdated = new Date(c.updatedAt);\n      if (cUpdated > new Date(highest_updated_at)) {\n        highest_updated_at = c.updatedAt;\n      }\n    }\n\n    // Skip no-email customers.\n    // Shopify returns email: null for customers with no email.\n    // Whitespace-only strings are defensively treated as missing.\n    const rawEmail = c.email ? String(c.email).trim() : '';\n    if (!rawEmail) {\n      skipped_no_email++;\n      continue;\n    }\n\n    const email = rawEmail.toLowerCase();\n\n    // numberOfOrders is a string in the GraphQL response. Coerce to a number\n    // and back to a string so \"00\" and \"0\" normalize the same way.\n    const orderCountRaw = c.numberOfOrders !== undefined && c.numberOfOrders !== null\n      ? Number(c.numberOfOrders)\n      : 0;\n    const orderCount = isNaN(orderCountRaw) ? 0 : orderCountRaw;\n\n    // amountSpent is an object. Defensive against a missing field.\n    const amountRaw = (c.amountSpent && c.amountSpent.amount) ? Number(c.amountSpent.amount) : 0;\n    const amountSafe = isNaN(amountRaw) ? 0 : amountRaw;\n\n    results.push({\n      json: {\n        type: 'customer',\n        run_id: run_id,\n        last_updated_at: last_updated_at,\n        customer_updated_at: c.updatedAt || null,\n        customer: {\n          shopify_id: c.id || null,\n          email: email,\n          firstname: c.firstName || null,\n          lastname: c.lastName || null,\n          shopify_order_count: String(orderCount),\n          shopify_total_spent: amountSafe.toFixed(2)\n        }\n      }\n    });\n  }\n\n  // Emit the summary item last so downstream nodes can read it after processing customers.\n  results.push({\n    json: {\n      type: 'summary',\n      run_id: run_id,\n      run_started_at: item.json.run_started_at || null,\n      last_updated_at: last_updated_at,\n      total_customers: customers.length,\n      skipped_no_email: skipped_no_email,\n      customers_mapped: customers.length - skipped_no_email,\n      highest_updated_at: highest_updated_at\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "1663f992-b2ba-4bce-965f-7d738130111d",
+      "name": "Map Customer Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split the mapped customers into chunks of up to 100 for HubSpot's\n// batch upsert endpoint. Carry the summary item through to the end so\n// downstream nodes can read the run totals.\n\nconst CHUNK_SIZE = 100;\n\nconst input = $input.all();\n\n// Separate customer items from the summary item\nconst customerItems = input.filter(i => i.json.type === 'customer');\nconst summaryItem = input.find(i => i.json.type === 'summary');\n\n// Defensive: summary must exist. If it does not, fabricate a minimal one.\nconst summary = summaryItem ? summaryItem.json : {\n  type: 'summary',\n  run_id: null,\n  last_updated_at: null,\n  total_customers: customerItems.length,\n  skipped_no_email: 0,\n  customers_mapped: customerItems.length,\n  highest_updated_at: null\n};\n\n// Build HubSpot batch upsert inputs from each customer item.\n// Property names: firstname, lastname (no underscore).\n// Custom properties: shopify_order_count, shopify_total_spent (Number type, string values).\nconst hubspotInputs = customerItems.map(i => {\n  const c = i.json.customer;\n  return {\n    idProperty: 'email',\n    id: c.email,\n    properties: {\n      email: c.email,\n      firstname: c.firstname,\n      lastname: c.lastname,\n      shopify_order_count: c.shopify_order_count,\n      shopify_total_spent: c.shopify_total_spent\n    }\n  };\n});\n\n// Chunk into groups of CHUNK_SIZE.\nconst chunks = [];\nfor (let i = 0; i < hubspotInputs.length; i += CHUNK_SIZE) {\n  chunks.push({\n    json: {\n      type: 'chunk',\n      chunk_index: Math.floor(i / CHUNK_SIZE),\n      chunk_size: Math.min(CHUNK_SIZE, hubspotInputs.length - i),\n      run_id: summary.run_id,\n      last_updated_at: summary.last_updated_at,\n      inputs: hubspotInputs.slice(i, i + CHUNK_SIZE)\n    }\n  });\n}\n\n// Emit chunk items only.\n// The summary item is read downstream by Extract Summary from Map Customer Fields.\n\nreturn chunks;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "18079bf5-0f0a-48f1-a3ed-21738d5a5df9",
+      "name": "Chunk for HubSpot"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ inputs: $json.inputs }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1488,
+        0
+      ],
+      "id": "5e093b9f-5694-4e8e-a379-575f3cbfc6f2",
+      "name": "Upsert HubSpot Contacts",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OvXCpsAK4exQKSSQ",
+          "name": "Supabase API"
+        },
+        "hubspotAppToken": {
+          "id": "6AUUWQ2CGfSNPNKZ",
+          "name": "HubSpot App Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the summary item from Map Customer Fields.\n// Map Customer Fields emits both customer items and one summary item.\n// This node keeps only the summary so Write Run Summary gets a single item.\n\nconst items = $('Map Customer Fields').all();\nconst summary = items.find(i => i.json.type === 'summary');\n\nif (!summary) {\n  throw new Error('Summary item not found in Map Customer Fields output');\n}\n\n// Derive chunks_created from customers_mapped.\n// HubSpot batch upserts accept up to 100 inputs per call.\n// This avoids a cross-sibling reference to Chunk for HubSpot.\nconst chunksCreated = Math.ceil(summary.json.customers_mapped / 100);\n\nreturn [{\n  json: Object.assign({}, summary.json, {\n    type: 'summary',\n    chunks_created: chunksCreated\n  })\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        176
+      ],
+      "id": "918aa06e-1127-4170-896c-1b937d5751ba",
+      "name": "Extract Summary"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO customer_sync_runs (\n  run_id,\n  started_at,\n  finished_at,\n  cursor_before,\n  cursor_after,\n  customers_fetched,\n  contacts_upserted,\n  skipped_no_email,\n  status,\n  error_message\n) VALUES (\n  '{{ $json.run_id.replace(/'/g, \"''\") }}',\n  '{{ $json.run_started_at }}'::timestamptz,\n  NOW(),\n  '{{ $json.last_updated_at }}'::timestamptz,\n  '{{ $json.highest_updated_at }}'::timestamptz,\n  {{ Number($json.total_customers) }},\n  {{ Number($json.customers_mapped) }},\n  {{ Number($json.skipped_no_email) }},\n  'success',\n  NULL\n)\nON CONFLICT (run_id) DO UPDATE SET\n  finished_at = EXCLUDED.finished_at,\n  cursor_after = EXCLUDED.cursor_after,\n  customers_fetched = EXCLUDED.customers_fetched,\n  contacts_upserted = EXCLUDED.contacts_upserted,\n  skipped_no_email = EXCLUDED.skipped_no_email,\n  status = EXCLUDED.status,\n  error_message = EXCLUDED.error_message;",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1472,
+        176
+      ],
+      "id": "f3235fb8-7292-474d-9c6d-938097fdb870",
+      "name": "Write Run Summary",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE customer_sync_state\nSET\n  last_updated_at = '{{ $('Extract Summary').first().json.highest_updated_at }}'::timestamptz,\n  last_run_id = '{{ $('Extract Summary').first().json.run_id.replace(/'/g, \"''\") }}',\n  updated_at = NOW()\nWHERE id = 1;",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1680,
+        176
+      ],
+      "id": "8c2c6609-7e70-4940-9d50-2c6d6463ebe7",
+      "name": "Advance Cursor",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Sync Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read Sync Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Sync Cursor": {
+      "main": [
+        [
+          {
+            "node": "Fetch Shopify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Shopify Token": {
+      "main": [
+        [
+          {
+            "node": "Fetch Shopify Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Shopify Customers": {
+      "main": [
+        [
+          {
+            "node": "Loop Customer Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Customer Pages": {
+      "main": [
+        [
+          {
+            "node": "Map Customer Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Customer Fields": {
+      "main": [
+        [
+          {
+            "node": "Chunk for HubSpot",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk for HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Upsert HubSpot Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Summary": {
+      "main": [
+        [
+          {
+            "node": "Write Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert HubSpot Contacts": {
+      "main": [
+        []
+      ]
+    },
+    "Write Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Advance Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "6EvVwX8ryATIi4lT",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": -1
+  },
+  "versionId": "e90258cf-6aa2-436c-b65c-85a56a9f3bba",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+  },
+  "id": "9YmpYHUY9POMp4rS",
+  "tags": []
+}
