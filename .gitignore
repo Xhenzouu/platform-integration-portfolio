@@ -156,3 +156,12 @@ secrets/
 # Sanitize-before-commit reminder:
 # Before committing any file in workflows/, run the sanitize pass documented
 # in the v1 README. Never commit raw workflow exports.
+
+# Stripe companion script (contains live shared secret in the working copy)
+scripts/stripe-verify-companion.js
+
+# Local env and secret files
+.env
+.env.local
+*.secret
+tunnel-url.txt

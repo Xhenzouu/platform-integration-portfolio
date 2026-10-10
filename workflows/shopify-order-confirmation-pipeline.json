@@ -19,9 +19,9 @@
         0,
         0
       ],
-      "id": "12366c5b-ad58-4d32-b11a-36f4c6005bc2",
+      "id": "YOUR_UUID",
       "name": "Receive Shopify Order",
-      "webhookId": "0af23ca2-3fad-4cfb-8388-a6bd63ca2d23"
+      "webhookId": "YOUR_UUID"
     },
     {
       "parameters": {
@@ -33,7 +33,7 @@
         208,
         0
       ],
-      "id": "f01cba49-bc00-4a76-af64-564e9f993d58",
+      "id": "YOUR_UUID",
       "name": "Verify Shopify HMAC"
     },
     {
@@ -46,7 +46,7 @@
         416,
         0
       ],
-      "id": "d86caafa-ac94-4ae7-9643-fa2d40e1cf03",
+      "id": "YOUR_UUID",
       "name": "Extract Order Fields"
     },
     {
@@ -59,7 +59,7 @@
         624,
         0
       ],
-      "id": "d2a6b503-e421-4553-a928-51deddd5c2de",
+      "id": "YOUR_UUID",
       "name": "Build Confirmation Email"
     },
     {
@@ -72,7 +72,7 @@
         832,
         0
       ],
-      "id": "e6f1c56a-6f6e-4e3a-9a87-e35018d9450f",
+      "id": "YOUR_UUID",
       "name": "Build Resend Body"
     },
     {
@@ -94,7 +94,7 @@
         1040,
         0
       ],
-      "id": "1cca49aa-b096-4139-a247-9a9ada328e1a",
+      "id": "YOUR_UUID",
       "name": "Send Confirmation Email",
       "credentials": {
         "httpHeaderAuth": {
@@ -129,7 +129,7 @@
         1456,
         0
       ],
-      "id": "cd9fece2-5432-4a06-bd23-f37a0102b743",
+      "id": "YOUR_UUID",
       "name": "Add Fulfillment Note"
     },
     {
@@ -162,7 +162,7 @@
         1248,
         0
       ],
-      "id": "089ca107-428f-46c7-b9c9-539f44516ced",
+      "id": "YOUR_UUID",
       "name": "Fetch Shopify Token"
     },
     {
@@ -179,7 +179,7 @@
         1664,
         0
       ],
-      "id": "0e0a0d15-f077-48b0-8744-819bf86556d1",
+      "id": "YOUR_UUID",
       "name": "Log Run to Supabase",
       "credentials": {
         "postgres": {
@@ -289,10 +289,10 @@
     "errorWorkflow": "feqJXoXrznywBh3Y",
     "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "49a5876c-2bf0-49df-84bd-e492bd6a52fc",
+  "versionId": "YOUR_UUID",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
   },
   "id": "6FWQSPxPcygsTl96",
   "tags": []

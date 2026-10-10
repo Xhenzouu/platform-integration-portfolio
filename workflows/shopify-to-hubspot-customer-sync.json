@@ -18,7 +18,7 @@
         0,
         0
       ],
-      "id": "bffa9b56-15f0-42cd-9e59-fc9f86ecb821",
+      "id": "YOUR_UUID",
       "name": "Sync Schedule"
     },
     {
@@ -35,7 +35,7 @@
         208,
         0
       ],
-      "id": "d2eabcef-9703-4728-b7ee-cfb6602ea4f3",
+      "id": "YOUR_UUID",
       "name": "Read Sync Cursor",
       "credentials": {
         "postgres": {
@@ -68,7 +68,7 @@
         624,
         0
       ],
-      "id": "eb8b9658-b034-4625-85ab-60e3268ade93",
+      "id": "YOUR_UUID",
       "name": "Fetch Shopify Customers"
     },
     {
@@ -101,7 +101,7 @@
         416,
         0
       ],
-      "id": "823b8b5b-aa8d-4752-b84e-1cda37654a6b",
+      "id": "YOUR_UUID",
       "name": "Fetch Shopify Token"
     },
     {
@@ -114,7 +114,7 @@
         832,
         0
       ],
-      "id": "e6f2e8ee-bfe0-4401-b4a8-e9f4d7825314",
+      "id": "YOUR_UUID",
       "name": "Loop Customer Pages"
     },
     {
@@ -127,7 +127,7 @@
         1040,
         0
       ],
-      "id": "1663f992-b2ba-4bce-965f-7d738130111d",
+      "id": "YOUR_UUID",
       "name": "Map Customer Fields"
     },
     {
@@ -140,7 +140,7 @@
         1264,
         0
       ],
-      "id": "18079bf5-0f0a-48f1-a3ed-21738d5a5df9",
+      "id": "YOUR_UUID",
       "name": "Chunk for HubSpot"
     },
     {
@@ -162,7 +162,7 @@
         1488,
         0
       ],
-      "id": "5e093b9f-5694-4e8e-a379-575f3cbfc6f2",
+      "id": "YOUR_UUID",
       "name": "Upsert HubSpot Contacts",
       "credentials": {
         "httpHeaderAuth": {
@@ -185,7 +185,7 @@
         1264,
         176
       ],
-      "id": "918aa06e-1127-4170-896c-1b937d5751ba",
+      "id": "YOUR_UUID",
       "name": "Extract Summary"
     },
     {
@@ -202,7 +202,7 @@
         1472,
         176
       ],
-      "id": "f3235fb8-7292-474d-9c6d-938097fdb870",
+      "id": "YOUR_UUID",
       "name": "Write Run Summary",
       "credentials": {
         "postgres": {
@@ -225,7 +225,7 @@
         1680,
         176
       ],
-      "id": "8c2c6609-7e70-4940-9d50-2c6d6463ebe7",
+      "id": "YOUR_UUID",
       "name": "Advance Cursor",
       "credentials": {
         "postgres": {
@@ -357,10 +357,10 @@
     "callerPolicy": "workflowsFromSameOwner",
     "executionTimeout": -1
   },
-  "versionId": "e90258cf-6aa2-436c-b65c-85a56a9f3bba",
+  "versionId": "YOUR_UUID",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
   },
   "id": "9YmpYHUY9POMp4rS",
   "tags": []

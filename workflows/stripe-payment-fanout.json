@@ -1,0 +1,483 @@
+﻿{
+  "name": "Stripe Payment Fan-Out with Partial-Failure Handling",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-payment",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Stripe Webhook",
+      "webhookId": "YOUR_UUID"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\n\nif (event.type !== 'payment_intent.succeeded') {\n  return [{\n    json: {\n      _skip: true,\n      reason: `Unhandled event type: ${event.type}`,\n      event_type: event.type\n    }\n  }];\n}\n\nconst pi = event.data.object;\n\nconst customer_email =\n  pi.receipt_email ||\n  (pi.charges && pi.charges.data && pi.charges.data[0] &&\n   pi.charges.data[0].billing_details &&\n   pi.charges.data[0].billing_details.email) ||\n  null;\n\nreturn [{\n  json: {\n    _skip: false,\n    stripe_event_id: event.id,\n    event_type: event.type,\n    payment_intent_id: pi.id,\n    amount_cents: pi.amount,\n    currency: pi.currency,\n    customer_email: customer_email,\n    created: pi.created,\n    raw_event: event\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Parse Payment Event"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// Shared secret between the local Node companion and n8n.\n// Must match WORKER_SHARED_SECRET in the companion's environment.\nconst sharedSecret = 'YOUR_WORKER_SHARED_SECRET';\n\nconst input = $input.first().json;\nconst headers = input.headers || {};\nconst workerHeader = headers['x-worker-verified'];\n\nif (!workerHeader) {\n  throw new Error('Missing X-Worker-Verified header');\n}\n\nconst expected = Buffer.from(sharedSecret, 'utf8');\nconst received = Buffer.from(workerHeader, 'utf8');\n\nif (expected.length !== received.length) {\n  throw new Error('X-Worker-Verified length mismatch');\n}\n\nif (!crypto.timingSafeEqual(expected, received)) {\n  throw new Error('X-Worker-Verified did not match');\n}\n\n// Return the parsed JSON event. n8n has already parsed the body since the\n// companion forwards a valid application/json payload.\nreturn [{ json: input.body }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Verify Worker Header"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        832,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Route to Destinations"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/redacted",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"ðŸ’³ Payment received\\nâ€¢ Amount: {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}\\nâ€¢ Customer: {{ $json.customer_email || 'unknown' }}\\nâ€¢ Payment Intent: {{ $json.payment_intent_id }}\\nâ€¢ Event: {{ $json.stripe_event_id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Send Slack Notification",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/YOUR_AIRTABLE_BASE_ID/Payments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"payment_intent_id\": \"{{ $json.payment_intent_id }}\",\n    \"amount_cents\": {{ $json.amount_cents }},\n    \"currency\": \"{{ $json.currency }}\",\n    \"customer_email\": \"{{ $json.customer_email }}\",\n    \"stripe_event_id\": \"{{ $json.stripe_event_id }}\",\n    \"processed_at\": \"{{ new Date().toISOString() }}\",\n    \"slack_status\": \"success\",\n    \"airtable_status\": \"success\",\n    \"resend_status\": \"success\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        176
+      ],
+      "id": "YOUR_UUID",
+      "name": "Log to Airtable",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "o6STnyYWl6GnIsJy",
+          "name": "Airtable PAT"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"onboarding@resend.dev\",\n  \"to\": \"arroyo_bing@yahoo.com.ph\",\n  \"subject\": \"Payment receipt â€” {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}\",\n  \"html\": \"<h2>Payment received</h2><p>Thank you for your payment.</p><ul><li><strong>Amount:</strong> {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}</li><li><strong>Payment Intent:</strong> {{ $json.payment_intent_id }}</li><li><strong>Event ID:</strong> {{ $json.stripe_event_id }}</li></ul>\",\n  \"text\": \"Payment received: {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}. Payment Intent: {{ $json.payment_intent_id }}.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        352
+      ],
+      "id": "YOUR_UUID",
+      "name": "Send Resend Receipt",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KTyLryVIDxoo1Frx",
+          "name": "Resend API"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nfor (const item of $input.all()) {\n  const json = item.json;\n  const isError = !!json.error;\n  const responseText = typeof json === 'string' ? json : (json.body || json);\n  results.push({\n    json: {\n      branch: 'slack',\n      status: isError ? 'failed' : 'success',\n      error: isError ? (json.error.message || JSON.stringify(json.error)) : null,\n      response: responseText\n    }\n  });\n}\nreturn results.length > 0\n  ? results\n  : [{ json: { branch: 'slack', status: 'failed', error: 'no response', response: null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Slack Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nfor (const item of $input.all()) {\n  const json = item.json;\n\n  // Resend error shape: { error: { message, name, status, statusCode } }\n  // Or wrapped: { error: AxiosError with .message, .status, .statusCode }\n  const errObj = json.error;\n  const isError = !!errObj ||\n                  (json.statusCode && json.statusCode >= 400) ||\n                  (json.status && json.status >= 400);\n\n  let status = 'success';\n  let errorMessage = null;\n\n  if (isError) {\n    status = 'failed';\n    if (typeof errObj === 'string') {\n      errorMessage = errObj;\n    } else if (errObj && errObj.message) {\n      errorMessage = errObj.message;\n    } else if (errObj && errObj.status) {\n      errorMessage = `HTTP ${errObj.status}`;\n    } else {\n      errorMessage = JSON.stringify(errObj);\n    }\n  } else if (!json.id) {\n    status = 'failed';\n    errorMessage = 'no email id in response';\n  }\n\n  results.push({\n    json: {\n      branch: 'resend',\n      status: status,\n      error: errorMessage,\n      response: json\n    }\n  });\n}\n\nreturn results.length > 0\n  ? results\n  : [{ json: { branch: 'resend', status: 'failed', error: 'no response', response: null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        352
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Resend Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nfor (const item of $input.all()) {\n  const json = item.json;\n  const isError = !!json.error;\n  const hasRecord = !!json.id;\n  let status = 'success';\n  let errorMessage = null;\n  if (isError || !hasRecord) {\n    status = 'failed';\n    errorMessage = typeof json.error === 'string'\n      ? json.error\n      : (json.error && json.error.message) || 'no record id in response';\n  }\n  results.push({\n    json: { branch: 'airtable', status: status, error: errorMessage, response: json }\n  });\n}\nreturn results.length > 0\n  ? results\n  : [{ json: { branch: 'airtable', status: 'failed', error: 'no response', response: null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        176
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Airtable Result"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1488,
+        160
+      ],
+      "id": "YOUR_UUID",
+      "name": "Merge Results"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Audit Row\n// Input: three items from Check Slack Result, Check Airtable Result, Check Resend Result\n// Output: one item with the fields needed for the Supabase insert\n\nconst items = $input.all();\n\n// Index by branch\nconst byBranch = {};\nfor (const item of items) {\n  const b = item.json.branch;\n  if (b) byBranch[b] = item.json;\n}\n\nconst slack    = byBranch.slack    || { status: 'skipped', error: null };\nconst airtable = byBranch.airtable || { status: 'skipped', error: null };\nconst resend   = byBranch.resend   || { status: 'skipped', error: null };\n\n// Compute overall_status\nconst statuses = [slack.status, airtable.status, resend.status];\nconst successCount = statuses.filter(s => s === 'success').length;\nconst failedCount  = statuses.filter(s => s === 'failed').length;\n\nlet overall;\nif (failedCount === 0 && successCount === 3) {\n  overall = 'success';\n} else if (successCount === 0) {\n  overall = 'failed';\n} else {\n  overall = 'partial';\n}\n\n// Pull the parsed payment event from Parse Payment Event\nconst event = $('Parse Payment Event').first().json;\n\nreturn [{\n  json: {\n    stripe_event_id:   event.stripe_event_id,\n    payment_intent_id: event.payment_intent_id,\n    amount_cents:      event.amount_cents,\n    currency:          event.currency,\n    customer_email:    event.customer_email,\n    slack_status:      slack.status,\n    airtable_status:   airtable.status,\n    resend_status:     resend.status,\n    slack_error:       slack.error,\n    airtable_error:    airtable.error,\n    resend_error:      resend.error,\n    overall_status:    overall,\n    raw_event:         JSON.stringify(event.raw_event)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        176
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Audit Row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO stripe_payment_runs (\n  stripe_event_id,\n  payment_intent_id,\n  amount_cents,\n  currency,\n  customer_email,\n  slack_status,\n  airtable_status,\n  resend_status,\n  slack_error,\n  airtable_error,\n  resend_error,\n  overall_status,\n  raw_event,\n  processed_at\n) VALUES (\n  '{{ $json.stripe_event_id }}',\n  '{{ $json.payment_intent_id }}',\n  '{{ $json.amount_cents }}'::integer,\n  '{{ $json.currency }}',\n  '{{ $json.customer_email }}',\n  '{{ $json.slack_status }}',\n  '{{ $json.airtable_status }}',\n  '{{ $json.resend_status }}',\n  '{{ $json.slack_error }}',\n  '{{ $json.airtable_error }}',\n  '{{ $json.resend_error }}',\n  '{{ $json.overall_status }}',\n  '{{ $json.raw_event }}'::jsonb,\n  NOW()\n)\nON CONFLICT (stripe_event_id) DO UPDATE SET\n  payment_intent_id = EXCLUDED.payment_intent_id,\n  amount_cents      = EXCLUDED.amount_cents,\n  currency          = EXCLUDED.currency,\n  customer_email    = EXCLUDED.customer_email,\n  slack_status      = EXCLUDED.slack_status,\n  airtable_status   = EXCLUDED.airtable_status,\n  resend_status     = EXCLUDED.resend_status,\n  slack_error       = EXCLUDED.slack_error,\n  airtable_error    = EXCLUDED.airtable_error,\n  resend_error      = EXCLUDED.resend_error,\n  overall_status    = EXCLUDED.overall_status,\n  raw_event         = EXCLUDED.raw_event,\n  processed_at      = EXCLUDED.processed_at,\n  retry_count       = stripe_payment_runs.retry_count + 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1888,
+        176
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Audit to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"received\": true,\n  \"event_id\": \"{{ $json.stripe_event_id || 'skipped' }}\",\n  \"overall_status\": \"{{ $json.overall_status || 'skipped' }}\"\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2096,
+        176
+      ],
+      "id": "YOUR_UUID",
+      "name": "Respond to Stripe"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "YOUR_UUID",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Filter Unhandled Events"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Stripe Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Worker Header",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Payment Event": {
+      "main": [
+        [
+          {
+            "node": "Filter Unhandled Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Worker Header": {
+      "main": [
+        [
+          {
+            "node": "Parse Payment Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Check Slack Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Slack Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Airtable": {
+      "main": [
+        [
+          {
+            "node": "Check Airtable Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Airtable Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slack Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Airtable Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Route to Destinations": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to Airtable",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Resend Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Resend Receipt": {
+      "main": [
+        [
+          {
+            "node": "Check Resend Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Resend Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Resend Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Build Audit Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Audit Row": {
+      "main": [
+        [
+          {
+            "node": "Write Audit to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Audit to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Respond to Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unhandled Events": {
+      "main": [
+        [
+          {
+            "node": "Route to Destinations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "528r2ExDD52mjdny",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": -1
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "yWAy9e2dZt0BBPRQ",
+  "tags": []
+}

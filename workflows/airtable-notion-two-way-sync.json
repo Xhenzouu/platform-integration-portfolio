@@ -13,7 +13,7 @@
         208,
         0
       ],
-      "id": "74edbe51-719c-41be-9cb9-e822bc7ac1d6",
+      "id": "YOUR_UUID",
       "name": "Read Sync State",
       "alwaysOutputData": true,
       "credentials": {
@@ -36,7 +36,7 @@
         624,
         -96
       ],
-      "id": "b1fd69ba-b2c9-4118-b1fb-229c2be28259",
+      "id": "YOUR_UUID",
       "name": "Fetch Airtable Changed",
       "alwaysOutputData": false,
       "credentials": {
@@ -60,7 +60,7 @@
         624,
         96
       ],
-      "id": "cb68f7b1-4520-4fc1-9d2a-4ee6604f05a8",
+      "id": "YOUR_UUID",
       "name": "Fetch Notion Changed",
       "credentials": {
         "httpCustomAuth": {
@@ -77,7 +77,7 @@
         16,
         0
       ],
-      "id": "2530c1a3-f2d7-4d87-bc27-3bbc2621cc0c",
+      "id": "YOUR_UUID",
       "name": "When clicking â€˜Execute workflowâ€™"
     },
     {
@@ -90,7 +90,7 @@
         1632,
         0
       ],
-      "id": "60dd4163-04bc-4bfb-9f7d-facadf5a8dff",
+      "id": "YOUR_UUID",
       "name": "Split: Airtable Writes"
     },
     {
@@ -116,7 +116,7 @@
         1840,
         0
       ],
-      "id": "60bd286a-9f04-41ed-bd88-5a3766544753",
+      "id": "YOUR_UUID",
       "name": "Write to Airtable",
       "credentials": {
         "httpHeaderAuth": {
@@ -137,7 +137,7 @@
         2048,
         0
       ],
-      "id": "fb927f7a-c8a2-4380-baec-cb5562d3e63b",
+      "id": "YOUR_UUID",
       "name": "Update Sync State",
       "credentials": {
         "postgres": {
@@ -158,7 +158,7 @@
         2256,
         0
       ],
-      "id": "9cc9851f-7c47-40f2-a9dc-08fb6568d834",
+      "id": "YOUR_UUID",
       "name": "Write Run Summary",
       "credentials": {
         "postgres": {
@@ -177,7 +177,7 @@
         1440,
         0
       ],
-      "id": "54a1c4ae-93a9-4641-88a8-420755e2fbdc",
+      "id": "YOUR_UUID",
       "name": "Resolve Conflicts"
     },
     {
@@ -190,7 +190,7 @@
         416,
         0
       ],
-      "id": "4e5859f2-3bff-4050-8980-8bedf5bacc23",
+      "id": "YOUR_UUID",
       "name": "Ensure Non-Empty Input"
     },
     {
@@ -203,7 +203,7 @@
         832,
         -96
       ],
-      "id": "cecaa374-86c9-44c2-aff3-4c1dd1c8804d",
+      "id": "YOUR_UUID",
       "name": "Extract Airtable Records"
     },
     {
@@ -216,7 +216,7 @@
         832,
         96
       ],
-      "id": "741f0716-4955-4c4c-acfb-776590a6a6fb",
+      "id": "YOUR_UUID",
       "name": "Extract Notion Records"
     },
     {
@@ -227,7 +227,7 @@
         1040,
         0
       ],
-      "id": "99c6cdc2-3f8b-49df-9b4a-db44f1e3cfb7",
+      "id": "YOUR_UUID",
       "name": "Combine Records"
     },
     {
@@ -240,7 +240,7 @@
         1248,
         0
       ],
-      "id": "39d145df-6ce3-49e9-b1f6-914238e3ab10",
+      "id": "YOUR_UUID",
       "name": "Merge & Classify"
     }
   ],
@@ -404,10 +404,10 @@
     "errorWorkflow": "hDNzoibmuvCHpdeR",
     "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "acd85ee6-7483-426a-b396-09509a40b1aa",
+  "versionId": "YOUR_UUID",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
   },
   "id": "HuVzRQPuibLm0CB2",
   "tags": []

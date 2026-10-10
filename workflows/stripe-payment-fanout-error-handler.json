@@ -1,0 +1,110 @@
+﻿{
+  "name": "Stripe Payment Fan-Out Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Error Payload\n// Reads the Error Trigger payload and prepares a safe JSON string for the\n// Postgres insert. Escapes single quotes so the SQL string literal is valid.\n\nconst event = $input.first().json;\n\nconst executionId = event.execution && event.execution.id\n  ? String(event.execution.id)\n  : `unknown_${Date.now()}`;\n\nconst stripeEventId = `error_exec_${executionId}`;\n\n// Escape single quotes for Postgres string literal\nconst rawJsonEscaped = JSON.stringify(event).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    stripe_event_id: stripeEventId,\n    overall_status: 'failed',\n    raw_event_json: rawJsonEscaped\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Error Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO stripe_payment_runs (\n  stripe_event_id,\n  overall_status,\n  retry_count,\n  raw_event\n) VALUES (\n  '{{ $json.stripe_event_id }}',\n  '{{ $json.overall_status }}',\n  0,\n  '{{ $json.raw_event_json }}'::jsonb\n)\nON CONFLICT (stripe_event_id) DO UPDATE SET\n  overall_status = 'failed',\n  retry_count = stripe_payment_runs.retry_count + 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Error to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "No Operation, do nothing"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Write Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Error to Supabase": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "528r2ExDD52mjdny",
+  "tags": []
+}

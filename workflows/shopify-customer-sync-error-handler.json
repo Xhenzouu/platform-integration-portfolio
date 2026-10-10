@@ -9,7 +9,7 @@
         0,
         0
       ],
-      "id": "5ef3424a-0882-4f11-88e9-b494e38b354b",
+      "id": "YOUR_UUID",
       "name": "Catch Sync Failure"
     },
     {
@@ -22,7 +22,7 @@
         208,
         0
       ],
-      "id": "39ff8f0f-c374-4fa6-a97b-83e0b7e7b936",
+      "id": "YOUR_UUID",
       "name": "Build Sync Error SQL"
     },
     {
@@ -39,7 +39,7 @@
         416,
         0
       ],
-      "id": "7385e2ce-505f-454e-b2de-cf71f026f565",
+      "id": "YOUR_UUID",
       "name": "Log Sync Error",
       "credentials": {
         "postgres": {
@@ -80,10 +80,10 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "ebaf9ca4-79b3-49cd-8e9c-69c908adecdc",
+  "versionId": "YOUR_UUID",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
   },
   "id": "6EvVwX8ryATIi4lT",
   "tags": []

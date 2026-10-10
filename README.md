@@ -23,12 +23,14 @@ The two repos are designed to be read together. This one shows how to connect to
 | 1 | [HubSpot Lead Enrichment Pipeline](docs/workflows/01-hubspot-lead-enrichment-pipeline.md) | HubSpot, Apify, Groq, Supabase | Inbound lead, enrich, score, create contact and conditional deal |
 | 2 | [Shopify Order Confirmation Pipeline](docs/workflows/02-shopify-order-confirmation-pipeline.md) | Shopify, Resend, Supabase | Order webhook, HMAC verify, HTML email, order note, audit log |
 | 3 | [Shopify to HubSpot Customer Sync](docs/workflows/03-shopify-to-hubspot-customer-sync.md) | Shopify, HubSpot, Supabase | Scheduled sync, cursor pagination, batch upsert, audit log |
+| 4 | [Airtable ↔ Notion Two-Way Sync](docs/workflows/04-airtable-notion-two-way-sync.md) | Airtable, Notion, Supabase | Scheduled bidirectional sync, per-record state, conflict detection, audit log |
+| 5 | [Stripe Payment Fan-Out with Partial-Failure Handling](docs/workflows/05-stripe-payment-fanout.md) | Stripe, Slack, Airtable, Resend, Supabase | Payment webhook, signature verify, parallel fan-out, per-branch failure handling, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
-n8n (self-hosted) · HubSpot API · Shopify Admin API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
+n8n (self-hosted) · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
 ## Repo Structure
 
@@ -95,6 +97,10 @@ Workflow 1 shipped. HubSpot Lead Enrichment Pipeline runs end-to-end from webhoo
 Workflow 2 shipped. Shopify Order Confirmation Pipeline runs end-to-end from Shopify webhook to Resend email to Shopify order note to Supabase audit log, with a companion error handler workflow that writes failure rows to the same audit table.
 
 Workflow 3 shipped. Shopify to HubSpot Customer Sync runs on a schedule, fetches customers updated since the last cursor, upserts them into HubSpot with order count and lifetime spend, and records every run and every failure in Supabase.
+
+Workflow 4 shipped. Airtable ↔ Notion Two-Way Sync runs on a schedule, detects changes on both platforms using per-record sync state, and surfaces conflicts for review. Verified end-to-end for the Notion → Airtable direction; the Airtable → Notion write path is documented as a Roadmap item. Companion error handler workflow writes failure rows to the audit table.
+
+Workflow 5 shipped. Stripe Payment Fan-Out with Partial-Failure Handling verifies Stripe webhook signatures via a companion Node.js process, fans out to Slack, Airtable, and Resend in parallel, and records per-branch outcomes in Supabase. One branch failing does not abort the others. Verified for the success path, partial-failure path, skip path, and error handler.
 
 More workflows will be added incrementally.
 

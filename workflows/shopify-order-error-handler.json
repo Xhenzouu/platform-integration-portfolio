@@ -9,7 +9,7 @@
         0,
         0
       ],
-      "id": "7ae2c899-be35-4ce9-b956-c6f47adfe8bb",
+      "id": "YOUR_UUID",
       "name": "Catch Workflow Failure"
     },
     {
@@ -22,7 +22,7 @@
         208,
         0
       ],
-      "id": "0791b9b6-51f7-4cda-b005-56bf4c99188a",
+      "id": "YOUR_UUID",
       "name": "Parse Error Context"
     },
     {
@@ -35,7 +35,7 @@
         416,
         0
       ],
-      "id": "576fa14b-54bb-4f56-aef4-c0168a752a6d",
+      "id": "YOUR_UUID",
       "name": "Build Error SQL"
     },
     {
@@ -52,7 +52,7 @@
         624,
         0
       ],
-      "id": "b8e6e393-4551-433c-a3fa-5490e639517e",
+      "id": "YOUR_UUID",
       "name": "Log Error to Supabase",
       "credentials": {
         "postgres": {
@@ -104,10 +104,10 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "fdbdcd26-c1a9-4b02-84fc-19d578e7afb5",
+  "versionId": "YOUR_UUID",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "daae1a4cfdc8cedef8e4c0a51dea5436df6634717b0af4368ce8236758877cd8"
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
   },
   "id": "feqJXoXrznywBh3Y",
   "tags": []
