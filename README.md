@@ -82,13 +82,15 @@ The `.gitignore` in this repo blocks the most common accidental leaks (`.env` va
 
 ## Setup
 
-Setup instructions will be added as each workflow lands. They will cover:
+Per-workflow setup instructions live in each workflow doc's "Setup prerequisites" section. The general prerequisites for any workflow in this repo:
 
-1. Platform account creation (free developer tier)
-2. API credentials and OAuth setup
-3. n8n credential configuration
-4. Importing the workflow JSON
-5. Testing with sample payloads
+1. Self-hosted n8n 2.8.4+ with `NODE_FUNCTION_ALLOW_BUILTIN=crypto` set
+2. A Supabase project (free tier) with the schema from the relevant workflow doc
+3. Cloudflare Tunnel for webhook-triggered workflows
+4. Platform accounts: HubSpot, Shopify, Airtable, Notion, Stripe (all free developer tier)
+5. API credentials stored as n8n credentials, never in the workflow JSON
+
+The `scripts/sanitize-workflows.ps1` script strips instance-specific values before commit. Run it before any commit that touches `workflows/`.
 
 ## Status
 
