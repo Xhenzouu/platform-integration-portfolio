@@ -1,0 +1,388 @@
+﻿{
+  "name": "Spreadsheet Import Validation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Spreadsheet Import",
+        "formDescription": "Upload a sales export from any location. Accepts .xlsx and .csv files up to 5 MB.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Spreadsheet File",
+              "fieldType": "file",
+              "fieldName": "file",
+              "acceptFileTypes": ".xlsx,.csv"
+            }
+          ]
+        },
+        "options": {
+          "path": "spreadsheet-import"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        176,
+        16
+      ],
+      "id": "YOUR_UUID",
+      "name": "On form submission",
+      "webhookId": "YOUR_UUID"
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('On form submission').first();\nconst sourceFilename =\n  trigger.json.file?.filename ||\n  trigger.json.file?.[0]?.filename ||\n  trigger.json.filename ||\n  trigger.json['file.filename'] ||\n  'unknown';\n\n// Canonical schema header synonyms\nconst HEADER_SYNONYMS = {\n  location:   ['location', 'store', 'branch', 'site', 'region'],\n  sale_date:  ['sale_date', 'date', 'saledate', 'transaction_date', 'order_date'],\n  sku:        ['sku', 'item', 'product_code', 'item_code', 'product'],\n  quantity:   ['quantity', 'qty', 'units', 'count'],\n  unit_price: ['unit_price', 'price', 'unitprice', 'price_per_unit'],\n  total:      ['total', 'amount', 'line_total']\n};\n\nfunction normalizeHeader(raw) {\n  const cleaned = String(raw).trim().toLowerCase().replace(/[\\s_\\-]+/g, '_');\n  for (const [canonical, synonyms] of Object.entries(HEADER_SYNONYMS)) {\n    if (synonyms.includes(cleaned)) return canonical;\n  }\n  return null;\n}\n\nconst output = [];\n\nfor (const item of $input.all()) {\n  const rawRow = item.json;\n  const normalizedRow = {};\n\n  for (const [rawHeader, value] of Object.entries(rawRow)) {\n    const canonical = normalizeHeader(rawHeader);\n    if (canonical) {\n      normalizedRow[canonical] = value;\n    }\n  }\n\n  output.push({\n    json: {\n      source_filename: sourceFilename,\n      raw_row: JSON.stringify(rawRow),\n      normalized_row: JSON.stringify(normalizedRow)\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Normalize Headers"
+    },
+    {
+      "parameters": {
+        "jsCode": "const CANONICAL_SCHEMA = {\n  location:   { required: true,  type: 'string', enum: ['store_a', 'store_b', 'store_c'] },\n  sale_date:  { required: true,  type: 'date' },\n  sku:        { required: true,  type: 'string' },\n  quantity:   { required: true,  type: 'number', min: 1, soft_max: 1000 },\n  unit_price: { required: true,  type: 'number', min: 0.01 },\n  total:      { required: false, type: 'number' }\n};\n\nfunction classifyRow(normalizedRow) {\n  const reasons = [];\n\n  for (const [field, spec] of Object.entries(CANONICAL_SCHEMA)) {\n    const value = normalizedRow[field];\n\n    // Required check\n    if (spec.required && (value === undefined || value === null || value === '')) {\n      reasons.push({ field, code: 'REQUIRED_MISSING', severity: 'ERROR' });\n      continue;\n    }\n    if (value === undefined || value === null || value === '') continue;\n\n    // Number type\n    if (spec.type === 'number') {\n      const n = Number(value);\n      if (isNaN(n)) {\n        reasons.push({ field, code: 'TYPE_MISMATCH', severity: 'ERROR' });\n        continue;\n      }\n      normalizedRow[field] = n;\n\n      if (spec.min !== undefined && n < spec.min) {\n        reasons.push({ field, code: 'RANGE_VIOLATION', severity: 'ERROR' });\n      }\n      if (spec.soft_max !== undefined && n > spec.soft_max) {\n        reasons.push({ field, code: 'SOFT_RANGE', severity: 'WARNING' });\n      }\n    }\n\n    // Date type â€” handle Excel serial numbers\n    if (spec.type === 'date') {\n      const serial = Number(value);\n      const isExcelSerial =\n        (typeof value === 'number' || /^\\d+$/.test(String(value))) &&\n        serial >= 43000 && serial <= 50000;\n\n      let d;\n      if (isExcelSerial) {\n        const excelEpoch = Date.UTC(1899, 11, 30);\n        const ms = serial * 24 * 60 * 60 * 1000;\n        d = new Date(excelEpoch + ms);\n      } else {\n        d = new Date(value);\n      }\n\n      if (isNaN(d.getTime())) {\n        reasons.push({ field, code: 'TYPE_MISMATCH', severity: 'ERROR' });\n        continue;\n      }\n\n      normalizedRow[field] = d.toISOString().slice(0, 10);\n\n      if (d > new Date()) {\n        reasons.push({ field, code: 'FUTURE_DATE', severity: 'WARNING' });\n      }\n    }\n\n    // Enum check\n    if (spec.enum && !spec.enum.includes(value)) {\n      reasons.push({ field, code: 'ENUM_MISMATCH', severity: 'WARNING' });\n    }\n  }\n\n  // Compute total if missing\n  if (\n    normalizedRow.total == null &&\n    normalizedRow.quantity != null &&\n    normalizedRow.unit_price != null\n  ) {\n    normalizedRow.total = +(normalizedRow.quantity * normalizedRow.unit_price).toFixed(2);\n  }\n\n  const hasError = reasons.some(r => r.severity === 'ERROR');\n  const hasWarning = reasons.some(r => r.severity === 'WARNING');\n\n  return {\n    classification: hasError ? 'invalid' : (hasWarning ? 'suspicious' : 'valid'),\n    reason: reasons.length ? JSON.stringify(reasons) : null\n  };\n}\n\nconst output = [];\n\nfor (const item of $input.all()) {\n  const normalizedRow = JSON.parse(item.json.normalized_row);\n  const { classification, reason } = classifyRow(normalizedRow);\n\n  output.push({\n    json: {\n      source_filename: item.json.source_filename,\n      raw_row: item.json.raw_row,\n      normalized_row: JSON.stringify(normalizedRow),\n      classification,\n      reason\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Validate Rows"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.sql }}",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Staging Rows",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRows = $('Validate Rows').all();\n\nconst validCount = allRows.filter(r => r.json.classification === 'valid').length;\nconst suspiciousCount = allRows.filter(r => r.json.classification === 'suspicious').length;\nconst invalidCount = allRows.filter(r => r.json.classification === 'invalid').length;\n\nconst stagingRows = $('Write Staging Rows').all();\nconst importRunId = stagingRows.length > 0 ? stagingRows[0].json.import_run_id : null;\n\nconst sourceFilename = $('Normalize Headers').first().json.source_filename \n  || $('On form submission').first().json.file?.filename \n  || 'unknown';\n\nreturn [{\n  json: {\n    import_run_id: importRunId,\n    source_filename: sourceFilename,\n    total_rows: allRows.length,\n    valid_count: validCount,\n    suspicious_count: suspiciousCount,\n    invalid_count: invalidCount\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Import Summary"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/redacted",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"ðŸ“Š Spreadsheet import staged\\nFile: {{ $json.source_filename }}\\nRows: {{ $json.total_rows }}\\nâœ… Valid: {{ $json.valid_count }}\\nâš ï¸ Suspicious: {{ $json.suspicious_count }}\\nâŒ Invalid: {{ $json.invalid_count }}\\n\\nRun ID: {{ $json.import_run_id }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1872,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post Summary to Slack",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE spreadsheet_import_runs\nSET\n  total_rows = {{ $('Build Import Summary').first().json.total_rows }},\n  valid_count = {{ $('Build Import Summary').first().json.valid_count }},\n  suspicious_count = {{ $('Build Import Summary').first().json.suspicious_count }},\n  invalid_count = {{ $('Build Import Summary').first().json.invalid_count }},\n  status = 'staged'\nWHERE id = {{ $('Build Import Summary').first().json.import_run_id }}\nRETURNING id, status;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2080,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Import Audit",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Import staged",
+        "completionMessage": "Your file has been received. Review the staged rows in the Supabase dashboard.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Show Completion Page",
+      "webhookId": "YOUR_UUID"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "=file",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Extract XLSX",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "=file",
+        "options": {
+          "delimiter": ",",
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Extract CSV",
+      "alwaysOutputData": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "YOUR_UUID",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Drop Failed Extracts"
+    },
+    {
+      "parameters": {
+        "jsCode": "const firstRow = $('Validate Rows').first().json;\nconst sourceFilename = firstRow.source_filename || 'unknown';\nconst rows = $('Validate Rows').all();\n\n// Escape single quotes for SQL string literals\nfunction esc(s) {\n  if (s === null || s === undefined) return '';\n  return String(s).replace(/'/g, \"''\");\n}\n\n// Build the VALUES list\nconst valuesList = rows.map((item, idx) => {\n  const r = item.json;\n  const rawEscaped = esc(r.raw_row);\n  const normEscaped = esc(r.normalized_row);\n  const reasonEscaped = esc(r.reason || '');\n  const classification = r.classification || 'invalid';\n\n  return `(\n    ${idx + 1},\n    '${rawEscaped}'::jsonb,\n    '${normEscaped}'::jsonb,\n    '${classification}',\n    NULLIF('${reasonEscaped}', '')\n  )`;\n}).join(',\\n');\n\nconst sql = `\nWITH new_run AS (\n  INSERT INTO spreadsheet_import_runs (\n    source_filename, total_rows, valid_count, suspicious_count, invalid_count, status, processed_at\n  ) VALUES (\n    '${esc(sourceFilename)}',\n    ${rows.length},\n    ${rows.filter(r => r.json.classification === 'valid').length},\n    ${rows.filter(r => r.json.classification === 'suspicious').length},\n    ${rows.filter(r => r.json.classification === 'invalid').length},\n    'staged',\n    NOW()\n  )\n  RETURNING id\n)\nINSERT INTO spreadsheet_staging (\n  import_run_id,\n  source_row_number,\n  raw_row,\n  normalized_row,\n  classification,\n  reason\n)\nSELECT\n  new_run.id,\n  v.source_row_number,\n  v.raw_row,\n  v.normalized_row,\n  v.classification,\n  v.reason\nFROM new_run,\nLATERAL (VALUES\n${valuesList}\n) AS v(source_row_number, raw_row, normalized_row, classification, reason)\nRETURNING id, import_run_id;\n`;\n\nreturn [{ json: { sql } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Staging Insert"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Extract XLSX",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Headers": {
+      "main": [
+        [
+          {
+            "node": "Validate Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Rows": {
+      "main": [
+        [
+          {
+            "node": "Build Staging Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Staging Rows": {
+      "main": [
+        [
+          {
+            "node": "Build Import Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Import Summary": {
+      "main": [
+        [
+          {
+            "node": "Post Summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Summary to Slack": {
+      "main": [
+        [
+          {
+            "node": "Write Import Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Import Audit": {
+      "main": [
+        [
+          {
+            "node": "Show Completion Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract XLSX": {
+      "main": [
+        [
+          {
+            "node": "Drop Failed Extracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV": {
+      "main": [
+        [
+          {
+            "node": "Drop Failed Extracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop Failed Extracts": {
+      "main": [
+        [
+          {
+            "node": "Normalize Headers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Staging Insert": {
+      "main": [
+        [
+          {
+            "node": "Write Staging Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "tLHA686fRq5DIO8W"
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "tMUVwjSfmmAMnSER",
+  "tags": []
+}

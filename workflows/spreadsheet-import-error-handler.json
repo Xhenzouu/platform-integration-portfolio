@@ -1,0 +1,110 @@
+﻿{
+  "name": "Spreadsheet Import Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\n\nconst executionId = event.execution && event.execution.id\n  ? String(event.execution.id)\n  : `unknown_${Date.now()}`;\n\nconst sourceFilename = `error_exec_${executionId}`;\nconst rawJsonEscaped = JSON.stringify(event).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    source_filename: sourceFilename,\n    error_payload: rawJsonEscaped\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Error Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO spreadsheet_import_runs (\n  source_filename, status, processed_at,\n  total_rows, valid_count, suspicious_count, invalid_count,\n  error_payload\n) VALUES (\n  '{{ $json.source_filename }}',\n  'failed',\n  NOW(),\n  0, 0, 0, 0,\n  '{{ $json.error_payload }}'\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Error to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "No Operation, do nothing"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Write Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Error to Supabase": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "tLHA686fRq5DIO8W",
+  "tags": []
+}

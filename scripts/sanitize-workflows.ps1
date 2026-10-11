@@ -14,7 +14,10 @@ param(
     ".\workflows\stripe-payment-fanout.json",
     ".\workflows\stripe-payment-fanout-error-handler.json",
     ".\workflows\google-calendar-meeting-summary.json",
-    ".\workflows\google-calendar-oauth-error-handler.json"
+    ".\workflows\google-calendar-oauth-error-handler.json",
+    ".\workflows\spreadsheet-import-validation-pipeline.json",
+    ".\workflows\spreadsheet-import-commit.json",
+    ".\workflows\spreadsheet-import-error-handler.json"
   )
 )
 
@@ -70,17 +73,15 @@ $replacements = @(
   # Google OAuth client secret (prefix split)
   @{ Pattern = ('G' + 'O' + 'C' + 'S' + 'P' + 'X' + '-' + '[A-Za-z0-9_-]+'); Replacement = 'YOUR_GOOGLE_CLIENT_SECRET' },
 
-  # Google refresh token (starts with "1//")
+  # Google refresh token
   @{ Pattern = ('1' + '//' + '[A-Za-z0-9_-]+'); Replacement = 'YOUR_GOOGLE_REFRESH_TOKEN' },
 
-  # Google access token (starts with "ya29.")
+  # Google access token
   @{ Pattern = ('y' + 'a' + '2' + '9' + '.' + '[A-Za-z0-9_-]+'); Replacement = 'YOUR_GOOGLE_ACCESS_TOKEN' },
 
-  @{ Pattern = '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'; Replacement = 'YOUR_EMAIL' },
-
-  # UUIDs LAST (broadest — replaces n8n node IDs, instance IDs, Notion IDs)
+  # UUIDs LAST (broadest)
   @{ Pattern = '[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}'; Replacement = 'YOUR_UUID' }
-  )
+)
 
 $totalReplacements = 0
 

@@ -26,12 +26,13 @@ The two repos are designed to be read together. This one shows how to connect to
 | 4 | [Airtable ↔ Notion Two-Way Sync](docs/workflows/04-airtable-notion-two-way-sync.md) | Airtable, Notion, Supabase | Scheduled bidirectional sync, per-record state, conflict detection, audit log |
 | 5 | [Stripe Payment Fan-Out with Partial-Failure Handling](docs/workflows/05-stripe-payment-fanout.md) | Stripe, Slack, Airtable, Resend, Supabase | Payment webhook, signature verify, parallel fan-out, per-branch failure handling, audit log |
 | 6 | [Google Calendar → Slack with OAuth Refresh Handling](docs/workflows/06-google-calendar-oauth-slack.md) | Google Calendar, Slack, Supabase | Scheduled fetch, OAuth refresh handling, idempotent event processing, alert threshold, audit log |
+| 7 | [Spreadsheet Consolidation & Validation Pipeline](docs/workflows/07-spreadsheet-import-validation.md) | n8n Form, Supabase, Slack | File upload, header normalization, row classification, staged review, idempotent commit |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
-n8n (self-hosted) · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
+n8n (self-hosted) · n8n Form · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
 ## Repo Structure
 
@@ -106,6 +107,8 @@ Workflow 4 shipped. Airtable ↔ Notion Two-Way Sync runs on a schedule, detects
 Workflow 5 shipped. Stripe Payment Fan-Out with Partial-Failure Handling verifies Stripe webhook signatures via a companion Node.js process, fans out to Slack, Airtable, and Resend in parallel, and records per-branch outcomes in Supabase. One branch failing does not abort the others. Verified for the success path, partial-failure path, skip path, and error handler.
 
 Workflow 6 shipped. Google Calendar → Slack with OAuth Refresh Handling runs on a schedule, uses the OAuth 2.0 authorization code flow with reactive refresh, monitors token health across runs, and posts meeting summaries to Slack. Idempotent on event ID via a unique index in the audit table. Three consecutive refresh failures trigger an alert to a separate Slack channel. Companion error handler workflow writes `error_exec_*` rows to the same audit table.
+
+Workflow 7 shipped. Spreadsheet Consolidation & Validation Pipeline accepts XLSX and CSV uploads via an n8n Form, normalizes variant headers to a canonical schema, classifies each row as valid, suspicious, or invalid, and stages the data for manual review. A separate commit workflow inserts only approved rows into the live sales table, idempotently. Companion error handler captures failures.
 
 More workflows will be added incrementally.
 

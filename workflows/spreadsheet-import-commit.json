@@ -1,0 +1,169 @@
+﻿{
+  "name": "Spreadsheet Commit to Sales Unified",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Every 15 Minutes"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  id,\n  import_run_id,\n  normalized_row->>'location' AS location,\n  (normalized_row->>'sale_date')::date AS sale_date,\n  normalized_row->>'sku' AS sku,\n  (normalized_row->>'quantity')::integer AS quantity,\n  (normalized_row->>'unit_price')::numeric AS unit_price,\n  (normalized_row->>'total')::numeric AS total\nFROM spreadsheet_staging\nWHERE review_status = 'approved'\nORDER BY import_run_id, id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Read Approved Rows",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sales_unified (\n  location, sale_date, sku, quantity, unit_price, total, source_import_run_id\n)\nSELECT\n  normalized_row->>'location',\n  (normalized_row->>'sale_date')::date,\n  normalized_row->>'sku',\n  (normalized_row->>'quantity')::integer,\n  (normalized_row->>'unit_price')::numeric,\n  (normalized_row->>'total')::numeric,\n  import_run_id\nFROM spreadsheet_staging\nWHERE review_status = 'approved'\nON CONFLICT (location, sale_date, sku, unit_price) DO NOTHING\nRETURNING id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Insert to Sales Unified",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE spreadsheet_staging\nSET review_status = 'committed',\n    reviewed_at = NOW()\nWHERE review_status = 'approved'\nRETURNING id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Mark Rows Committed",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE spreadsheet_import_runs\nSET status = 'committed',\n    committed_at = NOW()\nWHERE id IN (\n  SELECT DISTINCT import_run_id\n  FROM spreadsheet_staging\n  WHERE review_status = 'committed'\n)\nAND status = 'reviewed'\nRETURNING id, status;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Update Import Run",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Read Approved Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approved Rows": {
+      "main": [
+        [
+          {
+            "node": "Insert to Sales Unified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert to Sales Unified": {
+      "main": [
+        [
+          {
+            "node": "Mark Rows Committed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rows Committed": {
+      "main": [
+        [
+          {
+            "node": "Update Import Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "GdvUjyvCe5hBYBLk",
+  "tags": []
+}
