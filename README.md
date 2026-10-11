@@ -25,12 +25,13 @@ The two repos are designed to be read together. This one shows how to connect to
 | 3 | [Shopify to HubSpot Customer Sync](docs/workflows/03-shopify-to-hubspot-customer-sync.md) | Shopify, HubSpot, Supabase | Scheduled sync, cursor pagination, batch upsert, audit log |
 | 4 | [Airtable ↔ Notion Two-Way Sync](docs/workflows/04-airtable-notion-two-way-sync.md) | Airtable, Notion, Supabase | Scheduled bidirectional sync, per-record state, conflict detection, audit log |
 | 5 | [Stripe Payment Fan-Out with Partial-Failure Handling](docs/workflows/05-stripe-payment-fanout.md) | Stripe, Slack, Airtable, Resend, Supabase | Payment webhook, signature verify, parallel fan-out, per-branch failure handling, audit log |
+| 6 | [Google Calendar → Slack with OAuth Refresh Handling](docs/workflows/06-google-calendar-oauth-slack.md) | Google Calendar, Slack, Supabase | Scheduled fetch, OAuth refresh handling, idempotent event processing, alert threshold, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
-n8n (self-hosted) · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
+n8n (self-hosted) · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
 ## Repo Structure
 
@@ -87,7 +88,7 @@ Per-workflow setup instructions live in each workflow doc's "Setup prerequisites
 1. Self-hosted n8n 2.8.4+ with `NODE_FUNCTION_ALLOW_BUILTIN=crypto` set
 2. A Supabase project (free tier) with the schema from the relevant workflow doc
 3. Cloudflare Tunnel for webhook-triggered workflows
-4. Platform accounts: HubSpot, Shopify, Airtable, Notion, Stripe (all free developer tier)
+4. Platform accounts: HubSpot, Shopify, Airtable, Notion, Stripe, Google Cloud (all free developer tier)
 5. API credentials stored as n8n credentials, never in the workflow JSON
 
 The `scripts/sanitize-workflows.ps1` script strips instance-specific values before commit. Run it before any commit that touches `workflows/`.
@@ -103,6 +104,8 @@ Workflow 3 shipped. Shopify to HubSpot Customer Sync runs on a schedule, fetches
 Workflow 4 shipped. Airtable ↔ Notion Two-Way Sync runs on a schedule, detects changes on both platforms using per-record sync state, and surfaces conflicts for review. Verified end-to-end for the Notion → Airtable direction; the Airtable → Notion write path is documented as a Roadmap item. Companion error handler workflow writes failure rows to the audit table.
 
 Workflow 5 shipped. Stripe Payment Fan-Out with Partial-Failure Handling verifies Stripe webhook signatures via a companion Node.js process, fans out to Slack, Airtable, and Resend in parallel, and records per-branch outcomes in Supabase. One branch failing does not abort the others. Verified for the success path, partial-failure path, skip path, and error handler.
+
+Workflow 6 shipped. Google Calendar → Slack with OAuth Refresh Handling runs on a schedule, uses the OAuth 2.0 authorization code flow with reactive refresh, monitors token health across runs, and posts meeting summaries to Slack. Idempotent on event ID via a unique index in the audit table. Three consecutive refresh failures trigger an alert to a separate Slack channel. Companion error handler workflow writes `error_exec_*` rows to the same audit table.
 
 More workflows will be added incrementally.
 

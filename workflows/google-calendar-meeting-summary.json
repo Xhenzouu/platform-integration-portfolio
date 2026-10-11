@@ -1,0 +1,540 @@
+﻿{
+  "name": "Google Calendar Meeting Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pg_try_advisory_lock(12345) AS acquired;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Acquire Lock",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "YOUR_UUID",
+              "leftValue": "={{ $json.acquired }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Lock"
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeMin",
+              "value": "={{ $now.minus({ minutes: 20 }).toISO() }}"
+            },
+            {
+              "name": "timeMax",
+              "value": "={{ $now.toISO() }}"
+            },
+            {
+              "name": "singleEvents",
+              "value": "true"
+            },
+            {
+              "name": "orderBy",
+              "value": "startTime"
+            },
+            {
+              "name": "maxResults",
+              "value": "250"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Fetch Events",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "0jVfq3AwSX3hpwrn",
+          "name": "Google Calendar OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pg_advisory_unlock(12345) AS released;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        256
+      ],
+      "id": "YOUR_UUID",
+      "name": "Release Lock",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\n// If Fetch Events failed (401, 403, or network error), the item has an error field\nconst isFailed = !!item.error;\nconst statusCode = item.error?.status || item.statusCode || 200;\nconst errorMessage = item.error?.message || null;\n\nreturn [{\n  json: {\n    oauth_status: isFailed ? 'failed' : 'success',\n    oauth_error: errorMessage,\n    http_status: statusCode,\n    response_ok: !isFailed\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Detect OAuth Status"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO gcal_oauth_state (\n  id, last_refresh_at, last_refresh_status, last_refresh_error,\n  consecutive_failures, updated_at\n) VALUES (\n  1,\n  NOW(),\n  '{{ $json.oauth_status }}',\n  NULLIF('{{ $json.oauth_error || '' }}', ''),\n  CASE WHEN '{{ $json.oauth_status }}' = 'failed' THEN 1 ELSE 0 END,\n  NOW()\n)\nON CONFLICT (id) DO UPDATE SET\n  last_refresh_at = NOW(),\n  last_refresh_status = EXCLUDED.last_refresh_status,\n  last_refresh_error = EXCLUDED.last_refresh_error,\n  consecutive_failures = \n    CASE \n      WHEN EXCLUDED.last_refresh_status = 'failed' \n      THEN gcal_oauth_state.consecutive_failures + 1 \n      ELSE 0 \n    END,\n  updated_at = NOW();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write OAuth State",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\n// If Fetch Events failed, return empty array â€” nothing to process\nif (item.error) {\n  return [];\n}\n\nconst events = item.items || [];\nconst results = [];\n\nfor (const event of events) {\n  // Filter 1: Skip all-day events (no dateTime, only date)\n  if (event.start?.date && !event.start?.dateTime) {\n    continue;\n  }\n\n  // Filter 2: Skip cancelled events\n  if (event.status === 'cancelled') {\n    continue;\n  }\n\n  // Parse start and end times\n  const startTime = new Date(event.start.dateTime);\n  const endTime = new Date(event.end.dateTime);\n\n  // Skip events with invalid timestamps\n  if (isNaN(startTime) || isNaN(endTime)) {\n    continue;\n  }\n\n  // Compute duration in minutes\n  const durationMinutes = Math.round((endTime - startTime) / 60000);\n\n  // Count attendees (excluding the organizer if they're in the list)\n  const attendees = event.attendees || [];\n  const attendeeCount = attendees.filter(a => !a.organizer).length;\n\n  results.push({\n    json: {\n      gcal_event_id: event.id,\n      event_summary: event.summary || '(no title)',\n      event_start: startTime.toISOString(),\n      event_end: endTime.toISOString(),\n      attendee_count: attendeeCount,\n      duration_minutes: durationMinutes,\n      event_description: event.description || null,\n      event_html_link: event.htmlLink || null,\n      organizer_email: event.organizer?.email || null\n    }\n  });\n}\n\n// At the end of Extract Event Fields\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Extract Event Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter Already Posted\n// Reads events from Extract Event Fields by name (not $input), because\n// Query All Posted IDs replaced its input with the query result.\n\nconst currentItems = $('Extract Event Fields').all();\n\n// Fetch posted event IDs from the audit table\nconst postedRows = $('Query All Posted IDs').all().map(r => r.json.gcal_event_id);\nconst postedSet = new Set(postedRows.filter(id => id != null));\n\n// Filter out events already in the audit table\nreturn currentItems.filter(item => {\n  return item.json.gcal_event_id && !postedSet.has(item.json.gcal_event_id);\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Filter Already Posted"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT gcal_event_id\nFROM gcal_meeting_runs\nWHERE processed_at > NOW() - INTERVAL '7 days';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Query All Posted IDs",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/redacted",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"ðŸ“… Meeting ended: {{ $json.event_summary }}\\nDuration: {{ $json.duration_minutes }} min\\nAttendees: {{ $json.attendee_count }}\\n{{ $json.event_description ? 'Notes: ' + $json.event_description.slice(0, 100) : '' }}\\n<{{ $json.event_html_link }}|View in Calendar>\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1456,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post to Slack",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst event = $('Extract Event Fields').first().json;\n\n// Extract the response body regardless of shape\nlet responseBody = null;\n\nif (typeof item === 'string') {\n  responseBody = item;\n} else if (item.data && typeof item.data === 'string') {\n  responseBody = item.data;\n} else if (item.body && typeof item.body === 'string') {\n  responseBody = item.body;\n} else if (item.ok === true) {\n  responseBody = 'ok';\n}\n\nconst isError = !!item.error;\nconst isOkResponse = responseBody && responseBody.trim() === 'ok';\n\nlet slackMessageTs = null;\nlet slackError = null;\n\nif (isError) {\n  slackError = item.error?.message || JSON.stringify(item.error);\n} else if (!isOkResponse) {\n  slackError = `Unexpected Slack response: ${String(responseBody).slice(0, 200)}`;\n}\n\nreturn [{\n  json: {\n    gcal_event_id: event.gcal_event_id,\n    event_summary: event.event_summary,\n    event_start: event.event_start,\n    event_end: event.event_end,\n    attendee_count: event.attendee_count,\n    duration_minutes: event.duration_minutes,\n    slack_post_status: isError ? 'failed' : (isOkResponse ? 'success' : 'failed'),\n    slack_message_ts: isOkResponse ? 'ok' : null,\n    slack_error: slackError\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Slack Result"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO gcal_meeting_runs (\n  gcal_event_id,\n  event_summary,\n  event_start,\n  event_end,\n  attendee_count,\n  duration_minutes,\n  slack_post_status,\n  slack_message_ts,\n  slack_error,\n  oauth_refresh_attempted,\n  oauth_refresh_status,\n  oauth_error,\n  processed_at\n) VALUES (\n  '{{ $json.gcal_event_id }}',\n  '{{ $json.event_summary }}',\n  '{{ $json.event_start }}'::timestamptz,\n  '{{ $json.event_end }}'::timestamptz,\n  {{ $json.attendee_count }},\n  {{ $json.duration_minutes }},\n  '{{ $json.slack_post_status }}',\n  NULLIF('{{ $json.slack_message_ts || \"\" }}', ''),\n  NULLIF('{{ $json.slack_error || \"\" }}', ''),\n  TRUE,\n  '{{ $('Detect OAuth Status').first().json.oauth_status }}',\n  NULLIF('{{ $('Detect OAuth Status').first().json.oauth_error || \"\" }}', ''),\n  NOW()\n)\nON CONFLICT (gcal_event_id) DO UPDATE SET\n  slack_post_status = EXCLUDED.slack_post_status,\n  slack_message_ts = EXCLUDED.slack_message_ts,\n  slack_error = EXCLUDED.slack_error,\n  processed_at = EXCLUDED.processed_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1872,
+        80
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Audit Row",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT consecutive_failures, last_refresh_error\nFROM gcal_oauth_state\nWHERE id = 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1248,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Refresh Failures",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "YOUR_UUID",
+              "leftValue": "={{ $json.consecutive_failures }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1456,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Alert if Threshold"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/redacted",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"âš ï¸ *OAuth refresh failure alert*\\nConsecutive failures: {{ $json.consecutive_failures }}\\nLast error: {{ $json.last_refresh_error || '(no error message)' }}\\n\\n*Action required:* Reconnect the Google Calendar credential in n8n.\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1664,
+        -192
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post Alert to Slack",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Every 15 Minutes"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Acquire Lock": {
+      "main": [
+        [
+          {
+            "node": "Check Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Lock": {
+      "main": [
+        [
+          {
+            "node": "Fetch Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Events": {
+      "main": [
+        [
+          {
+            "node": "Detect OAuth Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract Event Fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Release Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect OAuth Status": {
+      "main": [
+        [
+          {
+            "node": "Write OAuth State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Event Fields": {
+      "main": [
+        [
+          {
+            "node": "Query All Posted IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query All Posted IDs": {
+      "main": [
+        [
+          {
+            "node": "Filter Already Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Already Posted": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [
+          {
+            "node": "Check Slack Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slack Result": {
+      "main": [
+        [
+          {
+            "node": "Write Audit Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write OAuth State": {
+      "main": [
+        [
+          {
+            "node": "Check Refresh Failures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Refresh Failures": {
+      "main": [
+        [
+          {
+            "node": "Alert if Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert if Threshold": {
+      "main": [
+        [
+          {
+            "node": "Post Alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Acquire Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "X7LDFG0kAF02s81h",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "TYKNX6nhZialdLIj",
+  "tags": []
+}

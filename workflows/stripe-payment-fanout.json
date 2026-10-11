@@ -111,7 +111,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"from\": \"onboarding@resend.dev\",\n  \"to\": \"arroyo_bing@yahoo.com.ph\",\n  \"subject\": \"Payment receipt â€” {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}\",\n  \"html\": \"<h2>Payment received</h2><p>Thank you for your payment.</p><ul><li><strong>Amount:</strong> {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}</li><li><strong>Payment Intent:</strong> {{ $json.payment_intent_id }}</li><li><strong>Event ID:</strong> {{ $json.stripe_event_id }}</li></ul>\",\n  \"text\": \"Payment received: {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}. Payment Intent: {{ $json.payment_intent_id }}.\"\n}",
+        "jsonBody": "={\n  \"from\": \"YOUR_EMAIL\",\n  \"to\": \"YOUR_EMAIL\",\n  \"subject\": \"Payment receipt â€” {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}\",\n  \"html\": \"<h2>Payment received</h2><p>Thank you for your payment.</p><ul><li><strong>Amount:</strong> {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}</li><li><strong>Payment Intent:</strong> {{ $json.payment_intent_id }}</li><li><strong>Event ID:</strong> {{ $json.stripe_event_id }}</li></ul>\",\n  \"text\": \"Payment received: {{ $json.currency.toUpperCase() }} {{ ($json.amount_cents / 100).toFixed(2) }}. Payment Intent: {{ $json.payment_intent_id }}.\"\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",

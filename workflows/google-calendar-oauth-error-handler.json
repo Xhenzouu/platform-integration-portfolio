@@ -1,0 +1,110 @@
+﻿{
+  "name": "Google Calendar OAuth Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Error Payload\n// Reads the Error Trigger payload and prepares a safe JSON string for the\n// Postgres insert. Escapes single quotes for the SQL string literal.\n\nconst event = $input.first().json;\n\nconst executionId = event.execution && event.execution.id\n  ? String(event.execution.id)\n  : `unknown_${Date.now()}`;\n\nconst gcalEventId = `error_exec_${executionId}`;\n\n// Escape single quotes for Postgres string literal\nconst rawJsonEscaped = JSON.stringify(event).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    gcal_event_id: gcalEventId,\n    slack_post_status: 'failed',\n    oauth_refresh_status: 'failed',\n    oauth_error: rawJsonEscaped,\n    event_summary: 'Error handler triggered'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Error Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO gcal_meeting_runs (\n  gcal_event_id,\n  event_summary,\n  slack_post_status,\n  slack_error,\n  oauth_refresh_attempted,\n  oauth_refresh_status,\n  oauth_error,\n  processed_at\n) VALUES (\n  '{{ $json.gcal_event_id }}',\n  '{{ $json.event_summary }}',\n  '{{ $json.slack_post_status }}',\n  NULL,\n  TRUE,\n  '{{ $json.oauth_refresh_status }}',\n  '{{ $json.oauth_error }}',\n  NOW()\n)\nON CONFLICT (gcal_event_id) DO UPDATE SET\n  slack_post_status = EXCLUDED.slack_post_status,\n  oauth_refresh_status = EXCLUDED.oauth_refresh_status,\n  oauth_error = EXCLUDED.oauth_error,\n  processed_at = EXCLUDED.processed_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Error to Supabase",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "No Operation, do nothing"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Write Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Error to Supabase": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "X7LDFG0kAF02s81h",
+  "tags": []
+}
