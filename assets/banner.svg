@@ -85,7 +85,7 @@
 
   <!-- bottom tag row -->
   <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#8a7fd6">
-    <text x="330" y="250">9 workflows</text>
+    <text x="330" y="250">10 workflows</text>
     <text x="440" y="250">·</text>
     <text x="455" y="250">Webhooks</text>
     <text x="555" y="250">·</text>
