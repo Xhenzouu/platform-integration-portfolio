@@ -17,7 +17,9 @@ param(
     ".\workflows\google-calendar-oauth-error-handler.json",
     ".\workflows\spreadsheet-import-validation-pipeline.json",
     ".\workflows\spreadsheet-import-commit.json",
-    ".\workflows\spreadsheet-import-error-handler.json"
+    ".\workflows\spreadsheet-import-error-handler.json",
+    ".\workflows\canvas-deadline-aggregator.json",
+    ".\workflows\canvas-digest-error-handler.json"
   )
 )
 
@@ -61,6 +63,9 @@ $replacements = @(
 
   # Slack incoming webhook URL
   @{ Pattern = 'hooks\.slack\.com/services/[A-Z0-9/]+'; Replacement = 'hooks.slack.com/services/redacted' },
+  
+  # Slack bot token (xoxb-) - added just in case it was ever hardcoded
+  @{ Pattern = ('x' + 'o' + 'x' + 'b' + '-' + '[A-Za-z0-9-]+'); Replacement = 'YOUR_SLACK_BOT_TOKEN' },
 
   # Worker shared secret (64-char hex)
   @{ Pattern = '[a-f0-9]{64}'; Replacement = 'YOUR_WORKER_SHARED_SECRET' },
@@ -78,8 +83,11 @@ $replacements = @(
 
   # Google access token
   @{ Pattern = ('y' + 'a' + '2' + '9' + '.' + '[A-Za-z0-9_-]+'); Replacement = 'YOUR_GOOGLE_ACCESS_TOKEN' },
+  
+  # Canvas LMS URL (optional, but good to genericize the doc)
+  @{ Pattern = 'awsrestart\.instructure\.com'; Replacement = 'YOUR_INSTITUTION.instructure.com' },
 
-  # UUIDs LAST (broadest)
+  # UUIDs LAST (broadest — replaces n8n node IDs, instance IDs, Notion IDs)
   @{ Pattern = '[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}'; Replacement = 'YOUR_UUID' }
 )
 
@@ -106,4 +114,4 @@ Write-Output ""
 Write-Output "Sanitized $totalReplacements files."
 Write-Output ""
 Write-Output "Run the leak check to verify:"
-Write-Output "  Select-String -Path .\workflows\*.json -Pattern 'whsec_|hooks\.slack\.com|sk_test_|shpss_|shpca_|re_|trycloudflare|vrcvqtxgfmfdwhbzjuyv|platform-integration-sandbox|app[a-zA-Z0-9]{14}'"
+Write-Output "  Select-String -Path .\workflows\*.json -Pattern 'whsec_|hooks\.slack\.com|xoxb-|awsrestart|shpss_|shpca_|re_|trycloudflare|app[a-zA-Z0-9]{14}'"

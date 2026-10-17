@@ -1,0 +1,92 @@
+﻿{
+  "name": "Canvas Digest Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const errorData = $input.first().json;\n\nconst workflowName = errorData.workflow?.name || 'Unknown Workflow';\nconst executionId = errorData.execution?.id || 'Unknown ID';\nconst failedNode = errorData.execution?.lastNodeExecuted || 'Unknown Node';\nconst rawMessage = errorData.error?.message || 'No error message provided';\n\n// Clean the message (even though it's a clean string now, this is safe)\nconst cleanMessage = rawMessage.replace(/<[^>]*>?/gm, '').replace(/\\s+/g, ' ').trim().substring(0, 300);\n\nconst text = `ðŸš¨ *Workflow Failed:* ${workflowName}\n*Execution ID:* ${executionId}\n*Failing Node:* ${failedNode}\n*Error:* \\`${cleanMessage}\\``;\n\nreturn [{\n  json: {\n    text: text\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Format Error Message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#alerts\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post Error to Slack",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3wY9CW3gSLFk19iN",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error Message": {
+      "main": [
+        [
+          {
+            "node": "Post Error to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "zMTsnS4UwSXW18Gk",
+  "tags": []
+}

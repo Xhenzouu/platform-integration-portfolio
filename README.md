@@ -27,12 +27,13 @@ The two repos are designed to be read together. This one shows how to connect to
 | 5 | [Stripe Payment Fan-Out with Partial-Failure Handling](docs/workflows/05-stripe-payment-fanout.md) | Stripe, Slack, Airtable, Resend, Supabase | Payment webhook, signature verify, parallel fan-out, per-branch failure handling, audit log |
 | 6 | [Google Calendar → Slack with OAuth Refresh Handling](docs/workflows/06-google-calendar-oauth-slack.md) | Google Calendar, Slack, Supabase | Scheduled fetch, OAuth refresh handling, idempotent event processing, alert threshold, audit log |
 | 7 | [Spreadsheet Consolidation & Validation Pipeline](docs/workflows/07-spreadsheet-import-validation.md) | n8n Form, Supabase, Slack | File upload, header normalization, row classification, staged review, idempotent commit |
+| 8 | [Canvas Deadline Aggregator](docs/workflows/08-canvas-deadline-aggregator.md) | Canvas LMS, Slack, Supabase | Scheduled fetch, paginated fan-out/fan-in, regex categorization, Slack Block Kit digest, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
-n8n (self-hosted) · n8n Form · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
+n8n (self-hosted) · n8n Form · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Canvas LMS API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
 ## Repo Structure
 
@@ -109,6 +110,8 @@ Workflow 5 shipped. Stripe Payment Fan-Out with Partial-Failure Handling verifie
 Workflow 6 shipped. Google Calendar → Slack with OAuth Refresh Handling runs on a schedule, uses the OAuth 2.0 authorization code flow with reactive refresh, monitors token health across runs, and posts meeting summaries to Slack. Idempotent on event ID via a unique index in the audit table. Three consecutive refresh failures trigger an alert to a separate Slack channel. Companion error handler workflow writes `error_exec_*` rows to the same audit table.
 
 Workflow 7 shipped. Spreadsheet Consolidation & Validation Pipeline accepts XLSX and CSV uploads via an n8n Form, normalizes variant headers to a canonical schema, classifies each row as valid, suspicious, or invalid, and stages the data for manual review. A separate commit workflow inserts only approved rows into the live sales table, idempotently. Companion error handler captures failures.
+
+Workflow 8 shipped. Canvas Deadline Aggregator runs on a daily schedule, fans out across active Canvas courses to fetch paginated assignments, categorizes items by regex, and posts a grouped Slack Block Kit digest of unsubmitted work. Every run is logged to Supabase with course and item counts. Companion error handler posts failure alerts to a separate Slack channel.
 
 More workflows will be added incrementally.
 
