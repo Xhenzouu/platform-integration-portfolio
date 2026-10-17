@@ -1,0 +1,101 @@
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1226"/>
+      <stop offset="55%" stop-color="#1a1442"/>
+      <stop offset="100%" stop-color="#241a5e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#6d5bff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#6d5bff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hubGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8f7dff"/>
+      <stop offset="100%" stop-color="#5a3fe0"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="400" fill="url(#bg)"/>
+  <rect width="1200" height="400" fill="url(#glow)"/>
+
+  <!-- connection lines from hub to nodes -->
+  <g stroke="#9b8cff" stroke-width="1.5" opacity="0.5">
+    <line x1="235" y1="200" x2="90" y2="80"/>
+    <line x1="235" y1="200" x2="90" y2="200"/>
+    <line x1="235" y1="200" x2="90" y2="320"/>
+    <line x1="235" y1="200" x2="150" y2="140"/>
+    <line x1="235" y1="200" x2="150" y2="260"/>
+  </g>
+
+  <!-- traveling pulse dots -->
+  <g fill="#c6bbff">
+    <circle cx="160" cy="140" r="3">
+      <animate attributeName="cx" values="90;235" dur="2.4s" repeatCount="indefinite"/>
+      <animate attributeName="cy" values="80;200" dur="2.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;0" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="160" cy="260" r="3">
+      <animate attributeName="cx" values="90;235" dur="2.8s" begin="0.4s" repeatCount="indefinite"/>
+      <animate attributeName="cy" values="320;200" dur="2.8s" begin="0.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;0" dur="2.8s" begin="0.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="160" cy="200" r="3">
+      <animate attributeName="cx" values="90;235" dur="2s" begin="0.9s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.9s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- platform nodes (generic geometric glyphs, not brand logos) -->
+  <g filter="url(#soft)">
+    <circle cx="90" cy="80" r="16" fill="#2a2566" stroke="#8f7dff" stroke-width="2"/>
+    <circle cx="90" cy="80" r="6" fill="#ff8a5c"/>
+
+    <rect x="76" y="186" width="28" height="28" rx="6" fill="#2a2566" stroke="#8f7dff" stroke-width="2"/>
+    <rect x="84" y="194" width="12" height="12" rx="2" fill="#5ce0c6"/>
+
+    <polygon points="90,304 106,328 74,328" fill="#2a2566" stroke="#8f7dff" stroke-width="2"/>
+    <circle cx="90" cy="320" r="4" fill="#ffd25c"/>
+
+    <polygon points="150,124 164,140 150,156 136,140" fill="#2a2566" stroke="#8f7dff" stroke-width="2"/>
+    <circle cx="150" cy="140" r="4" fill="#ff5c8a"/>
+
+    <polygon points="150,244 164,260 150,276 136,260" fill="#2a2566" stroke="#8f7dff" stroke-width="2"/>
+    <circle cx="150" cy="260" r="4" fill="#5c9bff"/>
+  </g>
+
+  <!-- central hub -->
+  <circle cx="235" cy="200" r="34" fill="url(#hubGrad)" filter="url(#soft)"/>
+  <circle cx="235" cy="200" r="34" fill="none" stroke="#c6bbff" stroke-width="1.5" opacity="0.6"/>
+  <path d="M222 200 h26 M235 187 v26" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- title -->
+  <text x="330" y="175" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#f4f2ff">
+    Platform Integration Portfolio
+  </text>
+  <text x="330" y="212" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="19" fill="#b9b0f0">
+    Production integrations with commercial SaaS platforms — self-hosted n8n, free developer accounts
+  </text>
+
+  <!-- bottom tag row -->
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#8a7fd6">
+    <text x="330" y="250">9 workflows</text>
+    <text x="440" y="250">·</text>
+    <text x="455" y="250">Webhooks</text>
+    <text x="555" y="250">·</text>
+    <text x="570" y="250">Scheduled sync</text>
+    <text x="700" y="250">·</text>
+    <text x="715" y="250">Audit-logged</text>
+  </g>
+
+  <rect x="330" y="270" width="640" height="1" fill="#3f3680"/>
+  <text x="330" y="298" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#766bb8">
+    github.com/Xhenzouu/platform-integration-portfolio
+  </text>
+</svg>

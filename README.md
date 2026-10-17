@@ -1,6 +1,13 @@
-# Platform Integration Portfolio
+<div align="center">
 
-Production integrations with commercial SaaS platforms, built with self-hosted n8n and free developer accounts.
+<img src="./assets/banner.svg" alt="Platform Integration Portfolio — production integrations with commercial SaaS platforms, self-hosted n8n, free developer accounts" width="100%"/>
+
+![Workflows](https://img.shields.io/badge/workflows-9-blue?style=flat-square)
+![n8n](https://img.shields.io/badge/n8n-2.8.4-EA4B71?style=flat-square&logo=n8n&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![Status](https://img.shields.io/badge/status-actively_shipping-success?style=flat-square)
+
+</div>
 
 ## Thesis
 
@@ -33,6 +40,27 @@ The two repos are designed to be read together. This one shows how to connect to
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
+
+<div align="center">
+
+![n8n](https://img.shields.io/badge/n8n-EA4B71?style=for-the-badge&logo=n8n&logoColor=white)
+![HubSpot](https://img.shields.io/badge/HubSpot-FF7A59?style=for-the-badge&logo=hubspot&logoColor=white)
+![Shopify](https://img.shields.io/badge/Shopify-7AB55C?style=for-the-badge&logo=shopify&logoColor=white)
+![Airtable](https://img.shields.io/badge/Airtable-18BFFF?style=for-the-badge&logo=airtable&logoColor=white)
+![Notion](https://img.shields.io/badge/Notion-000000?style=for-the-badge&logo=notion&logoColor=white)
+![Stripe](https://img.shields.io/badge/Stripe-635BFF?style=for-the-badge&logo=stripe&logoColor=white)
+![Google Calendar](https://img.shields.io/badge/Google_Calendar-4285F4?style=for-the-badge&logo=googlecalendar&logoColor=white)
+![Slack](https://img.shields.io/badge/Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)
+![Resend](https://img.shields.io/badge/Resend-000000?style=for-the-badge&logo=resend&logoColor=white)
+![WhatsApp](https://img.shields.io/badge/WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Apify](https://img.shields.io/badge/Apify-00C2FF?style=for-the-badge)
+![Canvas LMS](https://img.shields.io/badge/Canvas_LMS-E13F76?style=for-the-badge)
+![Groq](https://img.shields.io/badge/Groq-F55036?style=for-the-badge)
+![Cloudflare Tunnel](https://img.shields.io/badge/Cloudflare_Tunnel-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)
+
+</div>
 
 n8n (self-hosted) · n8n Form · HubSpot API · Shopify Admin API · Airtable API · Notion API · Stripe API · Google Calendar API · Canvas LMS API · Slack API · Resend API · WhatsApp Cloud API · Supabase (PostgreSQL) · Groq · Apify · Cloudflare Tunnel
 
