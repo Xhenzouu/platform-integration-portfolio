@@ -19,7 +19,8 @@ param(
     ".\workflows\spreadsheet-import-commit.json",
     ".\workflows\spreadsheet-import-error-handler.json",
     ".\workflows\canvas-deadline-aggregator.json",
-    ".\workflows\canvas-digest-error-handler.json"
+    ".\workflows\canvas-digest-error-handler.json",
+    ".\workflows\multi-tenant-payment-notifications.json"
   )
 )
 
@@ -70,8 +71,10 @@ $replacements = @(
   # Worker shared secret (64-char hex)
   @{ Pattern = '[a-f0-9]{64}'; Replacement = 'YOUR_WORKER_SHARED_SECRET' },
 
+  # Generic Stripe Secret Keys (sk_test_ and sk_live_)
+  @{ Pattern = ('s' + 'k' + '_' + '(test|live)' + '_' + '[A-Za-z0-9]+'); Replacement = 'YOUR_STRIPE_SECRET_KEY' },
+
   # Stripe test API keys (prefix split)
-  @{ Pattern = ('s' + 'k' + '_' + 't' + 'e' + 's' + 't' + '_' + '[A-Za-z0-9]+'); Replacement = 'YOUR_STRIPE_TEST_KEY' },
   @{ Pattern = ('p' + 'k' + '_' + 't' + 'e' + 's' + 't' + '_' + '[A-Za-z0-9]+'); Replacement = 'YOUR_STRIPE_TEST_PUBLISHABLE' },
   @{ Pattern = ('r' + 'k' + '_' + 't' + 'e' + 's' + 't' + '_' + '[A-Za-z0-9]+'); Replacement = 'YOUR_STRIPE_RESTRICTED' },
 
@@ -114,4 +117,4 @@ Write-Output ""
 Write-Output "Sanitized $totalReplacements files."
 Write-Output ""
 Write-Output "Run the leak check to verify:"
-Write-Output "  Select-String -Path .\workflows\*.json -Pattern 'whsec_|hooks\.slack\.com|xoxb-|awsrestart|shpss_|shpca_|re_|trycloudflare|app[a-zA-Z0-9]{14}'"
+Write-Output "  Select-String -Path .\workflows\*.json -Pattern 'whsec_|sk_test|sk_live|hooks\.slack\.com|xoxb-|awsrestart|shpss_|shpca_|re_|trycloudflare|app[a-zA-Z0-9]{14}'"

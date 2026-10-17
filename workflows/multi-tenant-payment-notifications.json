@@ -1,0 +1,301 @@
+﻿{
+  "name": "Multi-Tenant Payment Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-tenant",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Stripe Webhook",
+      "webhookId": "YOUR_UUID"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Webhook node wraps the incoming payload in a 'body' object\nconst payload = $input.first().json.body;\n\n// Safely extract the metadata\nconst tenantId = payload?.data?.object?.metadata?.tenant_id;\nconst eventId = payload?.id;\n\nif (!tenantId) {\n  throw new Error(\"No tenant_id found in payload metadata\");\n}\n\nreturn [{\n  json: {\n    tenant_id: tenantId,\n    stripe_event_id: eventId,\n    raw_payload: payload\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Extract Tenant ID"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, tenant_id, company_name, stripe_api_key, slack_webhook_url, slack_channel\nFROM tenant_configs\nWHERE tenant_id = '{{ $json.tenant_id }}'\n  AND is_active = TRUE;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Lookup Tenant Config",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "YOUR_UUID",
+              "leftValue": "={{ $json.tenant_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Check Tenant Found"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        832,
+        96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Tenant Not Found"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the tenant configuration from the Postgres node\nconst tenant = $json;\nconst rawPayload = $('Extract Tenant ID').first().json.raw_payload;\nconst paymentIntentId = rawPayload?.data?.object?.id;\n\nif (!paymentIntentId) {\n  throw new Error(\"No payment intent ID found in payload\");\n}\n\n// Fetch the latest payment details using the tenant's specific Stripe key\nconst stripeResponse = await this.helpers.httpRequest({\n  method: 'GET',\n  url: `https://api.stripe.com/v1/payment_intents/${paymentIntentId}`,\n  headers: {\n    'Authorization': `Bearer ${tenant.stripe_api_key}`\n  }\n});\n\nreturn [{\n  json: {\n    tenant_id: tenant.tenant_id,\n    company_name: tenant.company_name,\n    slack_webhook_url: tenant.slack_webhook_url,\n    slack_channel: tenant.slack_channel,\n    payment_data: stripeResponse,\n    stripe_event_id: $('Extract Tenant ID').first().json.stripe_event_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Fetch Payment Details"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst amount = (data.payment_data.amount / 100).toFixed(2);\nconst currency = data.payment_data.currency.toUpperCase();\nconst email = data.payment_data.receipt_email || 'Unknown';\n\nconst text = `ðŸ’³ *Payment Received for ${data.company_name}*\\nâ€¢ Amount: ${currency} ${amount}\\nâ€¢ Customer: ${email}\\nâ€¢ Tenant ID: ${data.tenant_id}`;\n\nreturn [{\n  json: {\n    ...data,\n    slack_text: text\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Slack Message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nlet slackStatus = 'failed'; // Default to failed\nlet slackError = null;\n\ntry {\n  // Dynamically send to the tenant's specific Slack webhook\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: data.slack_webhook_url,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ text: data.slack_text })\n  });\n  \n  // Strict check: Slack only returns \"ok\" or {ok: true} on success.\n  if (response === 'ok' || (response && response.ok === true)) {\n    slackStatus = 'success';\n  } else {\n    // If it didn't return \"ok\", we treat it as a failure and capture what it did return.\n    slackStatus = 'failed';\n    slackError = `Unexpected Slack response: ${JSON.stringify(response).substring(0, 100)}`;\n  }\n} catch (error) {\n  slackStatus = 'failed';\n  slackError = error.message;\n}\n\nreturn [{\n  json: {\n    tenant_id: data.tenant_id,\n    stripe_event_id: data.stripe_event_id,\n    payment_intent_id: data.payment_data.id,\n    amount_cents: data.payment_data.amount,\n    currency: data.payment_data.currency,\n    slack_status: slackStatus,\n    slack_error: slackError\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post to Tenant Slack"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tenant_payment_runs (\n  tenant_id, stripe_event_id, payment_intent_id,\n  amount_cents, currency, customer_email,\n  tenant_lookup_status, stripe_fetch_status, slack_post_status, slack_error,\n  processed_at\n) VALUES (\n  '{{ $json.tenant_id }}',\n  '{{ $json.stripe_event_id }}',\n  '{{ $json.payment_intent_id }}',\n  {{ $json.amount_cents }},\n  '{{ $json.currency }}',\n  NULL,\n  'success',\n  'success',\n  '{{ $json.slack_status }}',\n  NULLIF('{{ $json.slack_error || \"\" }}', ''),\n  NOW()\n)\nON CONFLICT (stripe_event_id) DO NOTHING\nRETURNING id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1456,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Audit Row",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"received\": true,\n  \"tenant_id\": \"{{ $('Extract Tenant ID').first().json.tenant_id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1664,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Respond to Stripe"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Stripe Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Tenant ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tenant ID": {
+      "main": [
+        [
+          {
+            "node": "Lookup Tenant Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Tenant Config": {
+      "main": [
+        [
+          {
+            "node": "Check Tenant Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Tenant Found": {
+      "main": [
+        [
+          {
+            "node": "Fetch Payment Details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tenant Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Payment Details": {
+      "main": [
+        [
+          {
+            "node": "Build Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Post to Tenant Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Tenant Slack": {
+      "main": [
+        [
+          {
+            "node": "Write Audit Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Audit Row": {
+      "main": [
+        [
+          {
+            "node": "Respond to Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tenant Not Found": {
+      "main": [
+        [
+          {
+            "node": "Respond to Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "i07ONka15CHFrJFd",
+  "tags": []
+}

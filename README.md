@@ -28,6 +28,7 @@ The two repos are designed to be read together. This one shows how to connect to
 | 6 | [Google Calendar → Slack with OAuth Refresh Handling](docs/workflows/06-google-calendar-oauth-slack.md) | Google Calendar, Slack, Supabase | Scheduled fetch, OAuth refresh handling, idempotent event processing, alert threshold, audit log |
 | 7 | [Spreadsheet Consolidation & Validation Pipeline](docs/workflows/07-spreadsheet-import-validation.md) | n8n Form, Supabase, Slack | File upload, header normalization, row classification, staged review, idempotent commit |
 | 8 | [Canvas Deadline Aggregator](docs/workflows/08-canvas-deadline-aggregator.md) | Canvas LMS, Slack, Supabase | Scheduled fetch, paginated fan-out/fan-in, regex categorization, Slack Block Kit digest, audit log |
+| 9 | [Multi-Tenant Payment Notifications](docs/workflows/09-multi-tenant-payment-notifications.md) | Stripe, Slack, Supabase | Webhook, dynamic per-tenant credentials, tenant isolation, graceful per-tenant failure handling, audit log |
 
 More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
@@ -112,6 +113,8 @@ Workflow 6 shipped. Google Calendar → Slack with OAuth Refresh Handling runs o
 Workflow 7 shipped. Spreadsheet Consolidation & Validation Pipeline accepts XLSX and CSV uploads via an n8n Form, normalizes variant headers to a canonical schema, classifies each row as valid, suspicious, or invalid, and stages the data for manual review. A separate commit workflow inserts only approved rows into the live sales table, idempotently. Companion error handler captures failures.
 
 Workflow 8 shipped. Canvas Deadline Aggregator runs on a daily schedule, fans out across active Canvas courses to fetch paginated assignments, categorizes items by regex, and posts a grouped Slack Block Kit digest of unsubmitted work. Every run is logged to Supabase with course and item counts. Companion error handler posts failure alerts to a separate Slack channel.
+
+Workflow 9 shipped. Multi-Tenant Payment Notifications receives Stripe webhooks, looks up each tenant's own API key and Slack webhook from Supabase at runtime via a `this.helpers.httpRequest` workaround, fetches the real PaymentIntent, and posts to that tenant's Slack channel. Verified across three tenants: an active tenant with a valid config, an active tenant with a broken Slack webhook (logged as a graceful failure, not a crash), and an inactive tenant (correctly routed to a no-op with nothing written to the audit table).
 
 More workflows will be added incrementally.
 
