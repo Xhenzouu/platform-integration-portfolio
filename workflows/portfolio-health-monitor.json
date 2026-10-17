@@ -1,0 +1,191 @@
+﻿{
+  "name": "Portfolio Health Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Daily Health Check"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- W1: HubSpot Lead Enrichment\nSELECT 'HubSpot Lead Enrichment' AS workflow_name, \n       CASE WHEN error_message IS NOT NULL THEN 'failed' ELSE 'success' END AS status, \n       received_at AS run_timestamp\nFROM lead_enrichment_runs\nWHERE received_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W2: Shopify Order Confirmation\nSELECT 'Shopify Order Confirmation', \n       CASE WHEN error_message IS NOT NULL THEN 'failed' ELSE 'success' END, \n       processed_at\nFROM shopify_webhook_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W3: Shopify to HubSpot Sync\nSELECT 'Shopify to HubSpot Sync', \n       CASE WHEN status = 'error' THEN 'failed' ELSE status END, \n       started_at\nFROM customer_sync_runs\nWHERE started_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W4: Airtable to Notion Sync\nSELECT 'Airtable to Notion Sync', \n       CASE WHEN status = 'error' THEN 'failed' ELSE status END, \n       run_started_at\nFROM airtable_notion_sync_runs\nWHERE run_started_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W5: Stripe Payment Fan-Out\nSELECT 'Stripe Payment Fan-Out', \n       overall_status, \n       processed_at\nFROM stripe_payment_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W6: Google Calendar to Slack\nSELECT 'Google Calendar to Slack', \n       slack_post_status, \n       processed_at\nFROM gcal_meeting_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W7: Spreadsheet Validation\nSELECT 'Spreadsheet Validation', \n       CASE WHEN status = 'failed' THEN 'failed' WHEN status = 'committed' THEN 'success' ELSE 'partial' END, \n       processed_at\nFROM spreadsheet_import_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W8: Canvas Deadline Aggregator\nSELECT 'Canvas Deadline Aggregator', \n       slack_post_status, \n       processed_at\nFROM canvas_digest_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours'\n\nUNION ALL\n\n-- W9: Multi-Tenant Payment Notifications\nSELECT 'Multi-Tenant Payment Notifications', \n       slack_post_status, \n       processed_at\nFROM tenant_payment_runs\nWHERE processed_at >= NOW() - INTERVAL '24 hours';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Query All Audit Tables",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRuns = $input.all().map(i => i.json);\n\n// The 9 expected workflows\nconst expectedWorkflows = [\n  \"HubSpot Lead Enrichment\",\n  \"Shopify Order Confirmation\",\n  \"Shopify to HubSpot Sync\",\n  \"Airtable to Notion Sync\",\n  \"Stripe Payment Fan-Out\",\n  \"Google Calendar to Slack\",\n  \"Spreadsheet Validation\",\n  \"Canvas Deadline Aggregator\",\n  \"Multi-Tenant Payment Notifications\"\n];\n\nconst rollup = {};\n\n// 1. Initialize all workflows as stale with zero counts\nfor (const name of expectedWorkflows) {\n  rollup[name] = { success: 0, failed: 0, partial: 0, stale: true };\n}\n\n// 2. Aggregate the actual run data\nfor (const run of allRuns) {\n  if (!run || !run.workflow_name) continue; // Skip empty rows\n  \n  if (rollup[run.workflow_name]) {\n    rollup[run.workflow_name].stale = false; // It ran!\n    \n    const status = (run.status || '').toLowerCase();\n    \n    if (status === 'failed' || status === 'error') {\n      rollup[run.workflow_name].failed++;\n    } else if (status === 'partial' || status === 'staged') {\n      rollup[run.workflow_name].partial++;\n    } else {\n      rollup[run.workflow_name].success++;\n    }\n  }\n}\n\nreturn [{ json: rollup }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Compute Rollup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rollup = $input.first().json;\n\nconst needsAttention = [];\nconst healthy = [];\n\nlet attentionCount = 0;\nlet healthyCount = 0;\nlet staleCount = 0;\n\n// 1. Sort into categories and format the text lines\nfor (const [name, stats] of Object.entries(rollup)) {\n  let icon = \"\";\n  let text = \"\";\n\n  if (stats.stale) {\n    icon = \"ðŸ”´\";\n    text = `*${name}*\\nSTALE (0 runs in 24h)`;\n    needsAttention.push({ type: \"section\", text: { type: \"mrkdwn\", text: `${icon} ${text}` } });\n    attentionCount++;\n    staleCount++;\n  } else if (stats.failed > 0 || stats.partial > 0) {\n    icon = \"âš ï¸\";\n    text = `*${name}*\\n${stats.success} success, ${stats.failed} failed, ${stats.partial} partial`;\n    needsAttention.push({ type: \"section\", text: { type: \"mrkdwn\", text: `${icon} ${text}` } });\n    attentionCount++;\n  } else {\n    icon = \"âœ…\";\n    text = `*${name}*\\n${stats.success} successful runs`;\n    healthy.push({ type: \"section\", text: { type: \"mrkdwn\", text: `${icon} ${text}` } });\n    healthyCount++;\n  }\n}\n\n// 2. Build the final Slack Block Kit array\nconst dateString = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\nconst blocks = [\n  {\n    type: \"header\",\n    text: { type: \"plain_text\", text: \"ðŸ¥ Portfolio Health Monitor\", emoji: true }\n  },\n  {\n    type: \"context\",\n    elements: [{ type: \"mrkdwn\", text: `*Date:* ${dateString}` }]\n  },\n  { type: \"divider\" }\n];\n\n// Add Needs Attention (if any)\nif (needsAttention.length > 0) {\n  blocks.push({\n    type: \"header\",\n    text: { type: \"plain_text\", text: \"âš ï¸ Needs Attention\", emoji: true }\n  });\n  blocks.push(...needsAttention);\n  blocks.push({ type: \"divider\" });\n}\n\n// Add Healthy (if any)\nif (healthy.length > 0) {\n  blocks.push({\n    type: \"header\",\n    text: { type: \"plain_text\", text: \"âœ… Healthy\", emoji: true }\n  });\n  blocks.push(...healthy);\n}\n\n// 3. Return blocks and summary counts\nreturn [{\n  json: {\n    blocks: blocks,\n    summary: {\n      total: Object.keys(rollup).length,\n      healthy: healthyCount,\n      attention: attentionCount,\n      stale: staleCount\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Build Digest"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#portfolio-health\",\n  \"text\": \"Daily Portfolio Health Monitor\",\n  \"blocks\": {{ JSON.stringify($json.blocks) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        832,
+        0
+      ],
+      "id": "YOUR_UUID",
+      "name": "Post to Slack",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3wY9CW3gSLFk19iN",
+          "name": "Slack Bot"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO portfolio_health_runs (\n  total_workflows, \n  healthy_count, \n  attention_count, \n  stale_count, \n  slack_post_status\n) VALUES (\n  {{ $('Build Digest').first().json.summary.total }},\n  {{ $('Build Digest').first().json.summary.healthy }},\n  {{ $('Build Digest').first().json.summary.attention }},\n  {{ $('Build Digest').first().json.summary.stale }},\n  '{{ $json.ok === true ? 'success' : 'failed' }}'\n)\nRETURNING id, run_timestamp;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        -96
+      ],
+      "id": "YOUR_UUID",
+      "name": "Write Monitor Run",
+      "credentials": {
+        "postgres": {
+          "id": "qMvaRhJDoZWarixG",
+          "name": "Supabase Postgres (v2)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Health Check": {
+      "main": [
+        [
+          {
+            "node": "Query All Audit Tables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query All Audit Tables": {
+      "main": [
+        [
+          {
+            "node": "Compute Rollup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Rollup": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [
+          {
+            "node": "Write Monitor Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_UUID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_WORKER_SHARED_SECRET"
+  },
+  "id": "9NODdNjatAWhqhYE",
+  "tags": []
+}

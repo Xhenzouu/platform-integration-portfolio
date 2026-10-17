@@ -20,7 +20,8 @@ param(
     ".\workflows\spreadsheet-import-error-handler.json",
     ".\workflows\canvas-deadline-aggregator.json",
     ".\workflows\canvas-digest-error-handler.json",
-    ".\workflows\multi-tenant-payment-notifications.json"
+    ".\workflows\multi-tenant-payment-notifications.json",
+    ".\workflows\portfolio-health-monitor.json"
   )
 )
 

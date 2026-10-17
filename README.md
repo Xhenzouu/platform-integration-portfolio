@@ -2,7 +2,7 @@
 
 <img src="./assets/banner.svg" alt="Platform Integration Portfolio — production integrations with commercial SaaS platforms, self-hosted n8n, free developer accounts" width="100%"/>
 
-![Workflows](https://img.shields.io/badge/workflows-9-blue?style=flat-square)
+![Workflows](https://img.shields.io/badge/workflows-10-blue?style=flat-square)
 ![n8n](https://img.shields.io/badge/n8n-2.8.4-EA4B71?style=flat-square&logo=n8n&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/status-actively_shipping-success?style=flat-square)
@@ -36,8 +36,9 @@ The two repos are designed to be read together. This one shows how to connect to
 | 7 | [Spreadsheet Consolidation & Validation Pipeline](docs/workflows/07-spreadsheet-import-validation.md) | n8n Form, Supabase, Slack | File upload, header normalization, row classification, staged review, idempotent commit |
 | 8 | [Canvas Deadline Aggregator](docs/workflows/08-canvas-deadline-aggregator.md) | Canvas LMS, Slack, Supabase | Scheduled fetch, paginated fan-out/fan-in, regex categorization, Slack Block Kit digest, audit log |
 | 9 | [Multi-Tenant Payment Notifications](docs/workflows/09-multi-tenant-payment-notifications.md) | Stripe, Slack, Supabase | Webhook, dynamic per-tenant credentials, tenant isolation, graceful per-tenant failure handling, audit log |
+| 10 | [Portfolio Health Monitor](docs/workflows/10-portfolio-health-monitor.md) | n8n, Supabase, Slack | Meta-workflow. Aggregates audit logs from all 9 workflows to monitor for silent failures or stale runs. |
 
-More workflows will be added incrementally. Each will follow the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
+Every workflow follows the same documentation structure: architecture diagram, key implementation details, verified behavior with screenshots, and platform-specific gotchas.
 
 ## Stack
 
@@ -144,7 +145,7 @@ Workflow 8 shipped. Canvas Deadline Aggregator runs on a daily schedule, fans ou
 
 Workflow 9 shipped. Multi-Tenant Payment Notifications receives Stripe webhooks, looks up each tenant's own API key and Slack webhook from Supabase at runtime via a `this.helpers.httpRequest` workaround, fetches the real PaymentIntent, and posts to that tenant's Slack channel. Verified across three tenants: an active tenant with a valid config, an active tenant with a broken Slack webhook (logged as a graceful failure, not a crash), and an inactive tenant (correctly routed to a no-op with nothing written to the audit table).
 
-More workflows will be added incrementally.
+Workflow 10 shipped. Portfolio Health Monitor runs daily, aggregating audit data from all 9 previous workflows, normalizing their different schemas, and posting a health digest to Slack to flag failures or stale runs. This closes out the portfolio.
 
 ## About
 
